@@ -39,20 +39,22 @@ function mapsUrl(destination: Destination) {
   )}`;
 }
 
+function tripCostEstimate(destination: Destination) {
+  const nights = 7;
+  const airfareMidpoint = (destination.airfare.min + destination.airfare.max) / 2;
+  const lodgingMidpoint =
+    ((destination.lodging.rental.min + destination.lodging.rental.max) / 2) * nights;
+  const roundedTotal = Math.round((airfareMidpoint + lodgingMidpoint) / 100) * 100;
+
+  return `$${roundedTotal.toLocaleString()}`;
+}
+
 function linkTone() {
   return "border-ink/12 bg-white text-ink/72 hover:border-harbor/45 hover:text-harbor";
 }
 
-function findTone(kind: NonNullable<Destination["curatedFinds"]>[number]["kind"]) {
-  switch (kind) {
-    case "retreat":
-    case "craft":
-      return "border-moss/25 bg-moss/10 text-ink/78";
-    case "art":
-      return "border-harbor/25 bg-harbor/10 text-ink/78";
-    default:
-      return "border-moss/20 bg-moss/5 text-ink/72";
-  }
+function findTone(theme: Destination["visualTheme"]) {
+  return theme.highlightClass;
 }
 
 function curatedFinds(destination: Destination) {
@@ -67,8 +69,22 @@ function curatedFinds(destination: Destination) {
   ];
 }
 
-function InfoButton({ label, children }: { label: string; children: ReactNode }) {
+function InfoButton({
+  label,
+  children,
+  tone = "default",
+  highlightInfoClass = ""
+}: {
+  label: string;
+  children: ReactNode;
+  tone?: "default" | "onHighlight";
+  highlightInfoClass?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const buttonClass =
+    tone === "onHighlight"
+      ? `border-white/80 bg-white shadow-sm hover:border-white hover:bg-white/92 ${highlightInfoClass}`
+      : "border-ink/15 bg-white text-ink/58 hover:border-harbor hover:text-harbor";
 
   return (
     <span
@@ -79,14 +95,14 @@ function InfoButton({ label, children }: { label: string; children: ReactNode })
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-ink/15 bg-white text-ink/58 transition hover:border-harbor hover:text-harbor"
+        className={`inline-flex size-5 items-center justify-center rounded-full border transition ${buttonClass}`}
         aria-label={label}
         aria-expanded={open}
       >
         <Info size={12} aria-hidden="true" />
       </button>
       {open ? (
-        <span className="absolute right-0 top-7 z-20 w-72 rounded-md border border-ink/12 bg-white p-3 text-left text-xs leading-5 text-ink/72 shadow-soft">
+        <span className="absolute right-0 top-7 z-20 w-72 rounded-md border border-ink/12 !bg-white p-3 text-left text-xs font-normal leading-5 !text-ink shadow-soft [text-shadow:none]">
           {children}
         </span>
       ) : null}
@@ -195,17 +211,21 @@ export function DestinationCard({ destination }: { destination: Destination }) {
   }
 
   return (
-    <article className="overflow-visible rounded-md border border-ink/10 bg-white shadow-sm">
+    <article className={`overflow-visible rounded-md border-2 bg-white ${theme.cardClass}`}>
       <div
-        className={`min-h-[76px] bg-cover px-5 py-4 text-white ${theme.bannerClass}`}
+        className={`relative min-h-[224px] bg-cover text-white ${theme.bannerClass}`}
         style={bannerStyle}
       >
-        <div className="flex items-start justify-between gap-4">
+        <div
+          className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/14 to-transparent" />
+        <div className="relative flex items-start justify-between gap-4 px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.72),_0_1px_1px_rgb(0_0_0_/_0.9)]">
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/78">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
               {destination.region} · {theme.moodLabel}
             </p>
-            <h3 className="mt-1 text-xl font-semibold tracking-normal">
+            <h3 className="mt-2 text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
               <a
                 href={mapsUrl(destination)}
                 target="_blank"
@@ -213,16 +233,16 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                 className="inline-flex items-center gap-1.5 transition hover:text-white/78"
               >
                 {destination.name}
-                <MapPin size={15} aria-hidden="true" />
+                <MapPin size={28} className="shrink-0 sm:size-9" aria-hidden="true" />
               </a>
             </h3>
           </div>
           <button
             type="button"
             onClick={toggleWatch}
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition ${
+            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-[0_1px_8px_rgb(0_0_0_/_0.22)] transition ${
               watched
-                ? "border-white/30 bg-white text-ink"
+                ? theme.watchActiveClass
                 : "border-white/30 bg-white/12 text-white hover:bg-white/22"
             }`}
             title={watched ? "Remove from price watch" : "Add to price watch"}
@@ -237,64 +257,66 @@ export function DestinationCard({ destination }: { destination: Destination }) {
         </div>
       </div>
 
-      <div className="p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-ink">{destination.tripType}</span>
+      <div>
+        <div className={`border-b px-4 py-4 sm:px-5 ${theme.summaryClass}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-ink">{destination.tripType}</span>
+          </div>
+
+          <p className="mt-2 text-sm leading-6 text-ink/74">
+            {destination.fitSummary}{" "}
+            <span className="font-semibold text-ink">Cost around {tripCostEstimate(destination)}.</span>
+          </p>
+
+          <p className="mt-2 text-sm leading-6 text-ink/74">
+            Best months: {destination.bestMonths}
+          </p>
+
         </div>
 
-        <p className="mt-3 text-sm leading-6 text-ink/74">{destination.fitSummary}</p>
-
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => setPricesOpen((open) => !open)}
-            className="flex w-full items-center justify-between gap-3 rounded-md border border-ink/10 bg-ink/[0.035] px-3 py-2.5 text-left text-xs text-ink/62 transition hover:bg-ink/[0.055]"
-            aria-expanded={pricesOpen}
-          >
-            <span className="grid min-w-0 gap-1 sm:grid-cols-[0.75fr_1.25fr] sm:items-center">
-              <span>
-                <span className="font-semibold text-ink/54">Best months</span>{" "}
-                <span>{destination.bestMonths}</span>
-              </span>
-              <span>
-                <span className="font-semibold text-ink/54">Cost snapshot</span>{" "}
-                <span>air {destination.airfare.label}</span>
-                <span className="mx-1 text-ink/30">·</span>
-                <span>rental {destination.lodging.rental.label}</span>
-              </span>
-            </span>
-            <ChevronDown
-              size={15}
-              className={`shrink-0 transition ${pricesOpen ? "rotate-180" : ""}`}
-              aria-hidden="true"
-            />
-          </button>
-
-          {pricesOpen ? (
-            <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
-              <CompactPriceLink
-                href={destination.airfare.sourceUrl}
-                label={destination.airfare.label}
-                eyebrow="Airfare"
-                price={destination.airfare}
+        <div className="grid gap-3 px-4 py-4 sm:px-5">
+          <div>
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink/24">
+              Cost details
+            </p>
+            <button
+              type="button"
+              onClick={() => setPricesOpen((open) => !open)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-left text-xs font-semibold text-ink/78 transition hover:border-harbor/35 hover:text-harbor"
+              aria-expanded={pricesOpen}
+            >
+              <span>Show breakdown</span>
+              <ChevronDown
+                size={14}
+                className={`shrink-0 transition ${pricesOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
               />
-              <CompactPriceLink
-                href={destination.lodging.rental.sourceUrl}
-                label={destination.lodging.rental.label}
-                eyebrow="Rental"
-                price={destination.lodging.rental}
-              />
-              <CompactPriceLink
-                href={destination.lodging.hotel3Star.sourceUrl}
-                label={destination.lodging.hotel3Star.label}
-                eyebrow="3-star baseline"
-                price={destination.lodging.hotel3Star}
-              />
-            </div>
-          ) : null}
-        </div>
+            </button>
 
-        <div className="mt-4 grid gap-3">
+            {pricesOpen ? (
+              <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
+                <CompactPriceLink
+                  href={destination.airfare.sourceUrl}
+                  label={destination.airfare.label}
+                  eyebrow="Airfare"
+                  price={destination.airfare}
+                />
+                <CompactPriceLink
+                  href={destination.lodging.rental.sourceUrl}
+                  label={destination.lodging.rental.label}
+                  eyebrow="Rental"
+                  price={destination.lodging.rental}
+                />
+                <CompactPriceLink
+                  href={destination.lodging.hotel3Star.sourceUrl}
+                  label={destination.lodging.hotel3Star.label}
+                  eyebrow="3-star baseline"
+                  price={destination.lodging.hotel3Star}
+                />
+              </div>
+            ) : null}
+          </div>
+
           <div>
             <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink/24">
               Logistics
@@ -306,10 +328,10 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                   {destination.transportNote}
                 </InfoButton>
               </span>
-              <span className="rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-ink/64 ring-1 ring-ink/10">
+              <span className="text-xs font-medium text-ink/62">
                 Monthly stay: {destination.monthlyPotential}
               </span>
-              <span className="rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-ink/64 ring-1 ring-ink/10">
+              <span className="text-xs font-medium text-ink/62">
                 Shared rental: {destination.sharedRentalPotential}
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-clay/20 bg-clay/5 px-2.5 py-1.5 text-xs font-medium text-ink/70">
@@ -326,11 +348,11 @@ export function DestinationCard({ destination }: { destination: Destination }) {
             <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink/24">
               Scores
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-ink/62">
               {Object.entries(destination.fit).map(([key, value]) => (
                 <span
                   key={key}
-                  className="inline-flex items-center gap-1 rounded-md bg-paper px-2.5 py-1 text-xs font-medium text-ink/64"
+                  className="inline-flex items-center gap-1"
                 >
                   {scoreLabel(key)} {value}/10
                 </span>
@@ -347,7 +369,7 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                 <span
                   key={find.label}
                   className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold ${findTone(
-                    find.kind
+                    theme
                   )}`}
                 >
                   {find.url ? (
@@ -355,7 +377,7 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                       href={find.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 transition hover:text-harbor"
+                      className="inline-flex items-center gap-1 transition hover:text-white/82"
                     >
                       {find.label}
                       <ExternalLink size={12} aria-hidden="true" />
@@ -363,14 +385,20 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                   ) : (
                     find.label
                   )}
-                  <InfoButton label={`${find.label} note`}>{find.note}</InfoButton>
+                  <InfoButton
+                    label={`${find.label} note`}
+                    tone="onHighlight"
+                    highlightInfoClass={theme.highlightInfoClass}
+                  >
+                    {find.note}
+                  </InfoButton>
                 </span>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="mt-4 border-t border-ink/10 pt-3">
+        <div className="mx-4 mb-4 border-t border-ink/10 pt-3 sm:mx-5">
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-ink/24">
             Research
           </p>

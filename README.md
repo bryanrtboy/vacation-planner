@@ -40,6 +40,34 @@ APP_SESSION_SECRET=a-long-random-string
 npm run dev
 ```
 
+## Cloudflare deployment
+
+This app uses Next.js route handlers and password middleware, so deploy it with the Cloudflare OpenNext adapter rather than as a plain static Pages output.
+
+Cloudflare Workers build/deploy command:
+
+```bash
+npm run deploy
+```
+
+Local Cloudflare-runtime preview:
+
+```bash
+npm run preview
+```
+
+Required Cloudflare build variables/secrets:
+
+```txt
+APP_PASSWORD=<private-login-password>
+APP_SESSION_SECRET=<long-random-secret>
+WATCH_DAILY_CAP=25
+WATCH_REFRESH_STALE_HOURS=24
+WATCH_MAX_DESTINATIONS=20
+```
+
+Keep `APP_PASSWORD` and `APP_SESSION_SECRET` in Cloudflare environment variables/secrets, not in the repository.
+
 ## Cost-control design
 
 The app is designed for a free or low-cost Cloudflare deployment:

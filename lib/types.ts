@@ -38,8 +38,14 @@ export type Destination = {
     photoUrl?: string;
     photoPosition?: string;
     photoOverlay?: string;
+    heroOverlayClass: string;
+    cardClass: string;
     panelClass: string;
+    summaryClass: string;
+    highlightClass: string;
+    highlightInfoClass: string;
     buttonClass: string;
+    watchActiveClass: string;
     textClass: string;
     moodLabel: string;
   };
