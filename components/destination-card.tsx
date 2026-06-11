@@ -102,9 +102,20 @@ function InfoButton({
         <Info size={12} aria-hidden="true" />
       </button>
       {open ? (
-        <span className="absolute right-0 top-7 z-20 w-72 rounded-md border border-ink/12 !bg-white p-3 text-left text-xs font-normal leading-5 !text-ink shadow-soft [text-shadow:none]">
-          {children}
-        </span>
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 cursor-default bg-transparent sm:hidden"
+            aria-label="Close information"
+            onClick={() => setOpen(false)}
+          />
+          <span
+            role="tooltip"
+            className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 max-h-[48vh] overflow-auto rounded-md border border-ink/12 !bg-white p-4 text-left text-sm font-normal leading-6 !text-ink shadow-soft [text-shadow:none] sm:absolute sm:bottom-auto sm:inset-x-auto sm:right-0 sm:top-7 sm:z-20 sm:max-h-none sm:w-72 sm:overflow-visible sm:p-3 sm:text-xs sm:leading-5"
+          >
+            {children}
+          </span>
+        </>
       ) : null}
     </span>
   );
