@@ -16,6 +16,9 @@ const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
 const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
 const initialVisibleDestinations = 4;
 const destinationPageSize = 4;
+const allRegionsFilter = "all";
+const allTransportFilter = "all";
+const noScoreSort = "none";
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -78,6 +81,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingSnapshots, setLodgingSnapshots] =
     useState<StoredFareSnapshots>(readStoredLodgingSnapshots);
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
+  const [regionFilter, setRegionFilter] = useState(allRegionsFilter);
+  const [transportFilter, setTransportFilter] = useState(allTransportFilter);
+  const [scoreSort, setScoreSort] = useState<keyof Destination["fit"] | typeof noScoreSort>(
+    noScoreSort
+  );
   const [visibleCount, setVisibleCount] = useState(initialVisibleDestinations);
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
@@ -89,9 +97,33 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     () => destinations.map((destination) => destination.slug),
     [destinations]
   );
+  const regions = useMemo(
+    () => [...new Set(destinations.map((destination) => destination.region))].sort(),
+    [destinations]
+  );
+  const transportModes = useMemo(
+    () => [...new Set(destinations.map((destination) => destination.transport))].sort(),
+    [destinations]
+  );
+  const filteredDestinations = useMemo(() => {
+    const filtered = destinations.filter((destination) => {
+      const regionMatches =
+        regionFilter === allRegionsFilter || destination.region === regionFilter;
+      const transportMatches =
+        transportFilter === allTransportFilter || destination.transport === transportFilter;
+      return regionMatches && transportMatches;
+    });
+
+    if (scoreSort === noScoreSort) return filtered;
+
+    return [...filtered].sort((a, b) => {
+      const scoreDelta = b.fit[scoreSort] - a.fit[scoreSort];
+      return scoreDelta || a.name.localeCompare(b.name);
+    });
+  }, [destinations, regionFilter, scoreSort, transportFilter]);
   const visibleDestinations = useMemo(
-    () => destinations.slice(0, visibleCount),
-    [destinations, visibleCount]
+    () => filteredDestinations.slice(0, visibleCount),
+    [filteredDestinations, visibleCount]
   );
   const visibleDestinationSlugs = useMemo(
     () => visibleDestinations.map((destination) => destination.slug),
@@ -134,8 +166,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const snapshot = snapshots[snapshotKey(slug)];
     return snapshot && snapshot.status !== "checked";
   }).length;
-  const shownCount = Math.min(visibleCount, destinations.length);
-  const hasMoreDestinations = visibleCount < destinations.length;
+  const shownCount = Math.min(visibleCount, filteredDestinations.length);
+  const hasMoreDestinations = visibleCount < filteredDestinations.length;
+  const filtersActive =
+    regionFilter !== allRegionsFilter ||
+    transportFilter !== allTransportFilter ||
+    scoreSort !== noScoreSort;
 
   useEffect(() => {
     function syncPreferences() {
@@ -329,6 +365,68 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3 text-xs text-ink/58">
+        <label className="grid min-w-36 gap-1">
+          <span className="font-semibold uppercase tracking-wide text-ink/38">Region</span>
+          <select
+            value={regionFilter}
+            onChange={(event) => setRegionFilter(event.target.value)}
+            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+          >
+            <option value={allRegionsFilter}>all regions</option>
+            {regions.map((region) => (
+              <option key={region} value={region}>
+                {region}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid min-w-40 gap-1">
+          <span className="font-semibold uppercase tracking-wide text-ink/38">Transport</span>
+          <select
+            value={transportFilter}
+            onChange={(event) => setTransportFilter(event.target.value)}
+            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+          >
+            <option value={allTransportFilter}>all transport</option>
+            {transportModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid min-w-40 gap-1">
+          <span className="font-semibold uppercase tracking-wide text-ink/38">Sort by score</span>
+          <select
+            value={scoreSort}
+            onChange={(event) =>
+              setScoreSort(event.target.value as keyof Destination["fit"] | typeof noScoreSort)
+            }
+            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+          >
+            <option value={noScoreSort}>original order</option>
+            <option value="art">art</option>
+            <option value="gardens">gardens</option>
+            <option value="food">food</option>
+            <option value="landscape">landscape</option>
+          </select>
+        </label>
+        {filtersActive ? (
+          <button
+            type="button"
+            onClick={() => {
+              setRegionFilter(allRegionsFilter);
+              setTransportFilter(allTransportFilter);
+              setScoreSort(noScoreSort);
+            }}
+            className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2 text-xs text-ink/58">
         <span>
           {checkingCount
@@ -372,7 +470,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             type="button"
             onClick={() =>
               setVisibleCount((current) =>
-                Math.min(current + destinationPageSize, destinations.length)
+                Math.min(current + destinationPageSize, filteredDestinations.length)
               )
             }
             className="rounded-md border border-ink/15 bg-white px-4 py-2 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-ink/[0.03]"
@@ -380,7 +478,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             Show more ideas
           </button>
           <span className="text-xs font-semibold text-ink/45">
-            Showing {shownCount} of {destinations.length}
+            Showing {shownCount} of {filteredDestinations.length}
           </span>
         </div>
       ) : null}

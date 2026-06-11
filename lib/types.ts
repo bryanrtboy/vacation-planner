@@ -49,7 +49,7 @@ export type Destination = {
   visualTheme: {
     accentName: string;
     bannerClass: string;
-    photoUrl?: string;
+    photoUrl: string;
     photoPosition?: string;
     photoOverlay?: string;
     heroOverlayClass: string;

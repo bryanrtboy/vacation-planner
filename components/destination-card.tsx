@@ -30,18 +30,26 @@ function mapsUrl(destination: Destination) {
   )}`;
 }
 
-function bookingUrl(sourceUrl: string | undefined, tripWindow: TripWindow, adults = 2) {
+function bookingUrl(
+  sourceUrl: string | undefined,
+  tripWindow: TripWindow,
+  options: { adults?: number; hotelClass?: number } = {}
+) {
   if (!sourceUrl) return undefined;
 
   try {
     const url = new URL(sourceUrl);
     if (!url.hostname.includes("booking.com")) return sourceUrl;
+    const adults = options.adults ?? 2;
 
     url.searchParams.set("checkin", tripWindow.departDate);
     url.searchParams.set("checkout", tripWindow.returnDate);
     url.searchParams.set("group_adults", String(adults));
     url.searchParams.set("no_rooms", "1");
     url.searchParams.set("group_children", "0");
+    if (options.hotelClass) {
+      url.searchParams.set("nflt", `class=${options.hotelClass}`);
+    }
     return url.toString();
   } catch {
     return sourceUrl;
@@ -183,10 +191,17 @@ function stayPrice(price: PriceRange, nights: number): PriceRange {
   };
 }
 
-function staySearchPrice(price: PriceRange, nights: number, tripWindow: TripWindow): PriceRange {
+function staySearchPrice(
+  price: PriceRange,
+  nights: number,
+  tripWindow: TripWindow,
+  options: { fallbackSourceUrl?: string; hotelClass?: number } = {}
+): PriceRange {
   return {
     ...stayPrice(price, nights),
-    sourceUrl: bookingUrl(price.sourceUrl, tripWindow)
+    sourceUrl: bookingUrl(price.sourceUrl ?? options.fallbackSourceUrl, tripWindow, {
+      hotelClass: options.hotelClass
+    })
   };
 }
 
@@ -577,7 +592,15 @@ export function DestinationCard({
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
   const rentalPrice = staySearchPrice(destination.lodging.rental, preferences.nights, tripWindow);
-  const hotel3StarPrice = staySearchPrice(destination.lodging.hotel3Star, preferences.nights, tripWindow);
+  const hotel3StarPrice = staySearchPrice(
+    destination.lodging.hotel3Star,
+    preferences.nights,
+    tripWindow,
+    {
+      fallbackSourceUrl: destination.lodging.rental.sourceUrl,
+      hotelClass: 3
+    }
+  );
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
   const airfareStatusText = airfare
     ? `Travel dates ${travelDateLabel(tripWindow)} · ${

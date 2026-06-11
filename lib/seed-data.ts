@@ -24,6 +24,8 @@ type CandidateInput = {
   mapQuery: string;
   tripType: string;
   moodLabel: string;
+  photoUrl: string;
+  photoPosition?: string;
   flightDestination: string;
   destinationAirports: string[];
   departDate: string;
@@ -47,7 +49,7 @@ type CandidateInput = {
   theme: CandidatePalette;
 };
 
-type CandidatePalette = Omit<Destination["visualTheme"], "accentName" | "moodLabel">;
+type CandidatePalette = Omit<Destination["visualTheme"], "accentName" | "moodLabel" | "photoUrl">;
 
 function candidate(input: CandidateInput): Destination {
   return {
@@ -59,6 +61,8 @@ function candidate(input: CandidateInput): Destination {
     visualTheme: {
       accentName: input.moodLabel,
       ...input.theme,
+      photoUrl: input.photoUrl,
+      photoPosition: input.photoPosition ?? input.theme.photoPosition,
       moodLabel: input.moodLabel
     },
     flightSearch: {
@@ -203,6 +207,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Porto Douro Portugal",
     tripType: "Tiles, river neighborhoods, food markets, and wine-country train days",
     moodLabel: "river tiles",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Puente%20Don%20Luis%20I%2C%20Oporto%2C%20Portugal%2C%202012-05-09%2C%20DD%2013.JPG?width=800",
     flightDestination: "Porto",
     destinationAirports: ["OPO"],
     departDate: "2026-10-20",
@@ -246,6 +252,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Valencia Spain",
     tripType: "Ceramics, gardens, markets, and beach-edge apartment days",
     moodLabel: "ceramics and gardens",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Ciutat%20de%20les%20Arts%20i%20les%20Ci%C3%A8ncies%20at%20night%2C%20May%202017.jpg?width=800",
     flightDestination: "Valencia",
     destinationAirports: ["VLC", "MAD"],
     departDate: "2026-10-13",
@@ -289,6 +297,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Ljubljana Slovenia Lake Bled",
     tripType: "Small capital, design walks, markets, and alpine day trips",
     moodLabel: "small capital green",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Ljubljana%20Old%20Town%2C%20Slovenia%20%28Old%20Camera%29%20%2833286165680%29.jpg?width=800",
     flightDestination: "Ljubljana",
     destinationAirports: ["LJU", "VIE", "ZAG"],
     departDate: "2026-09-15",
@@ -332,6 +342,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Palermo Sicily Italy",
     tripType: "Markets, mosaics, palazzi, coast, and food-heavy wandering",
     moodLabel: "mosaics and markets",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Panoramica%20Cattedrale%20di%20Palermo.jpg?width=800",
     flightDestination: "Palermo",
     destinationAirports: ["PMO"],
     departDate: "2026-10-20",
@@ -375,6 +387,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Oaxaca City Mexico",
     tripType: "Textiles, printmaking, markets, food, and courtyard lodging",
     moodLabel: "textiles and courtyards",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Colonial%20Oaxaca.jpg?width=800",
     flightDestination: "Oaxaca",
     destinationAirports: ["OAX", "MEX"],
     departDate: "2026-11-10",
@@ -417,6 +431,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "San Miguel de Allende Guanajuato Mexico",
     tripType: "Courtyard house base, craft, galleries, food, and colonial walking",
     moodLabel: "courtyards and galleries",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/San%20Miguel%20de%20Allende%20at%20Sunset.jpg?width=800",
     flightDestination: "Queretaro",
     destinationAirports: ["QRO", "BJX", "MEX"],
     departDate: "2026-11-03",
@@ -459,6 +475,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Santa Fe Taos New Mexico",
     tripType: "Adobe, museums, landscape, food, and house-rental days",
     moodLabel: "adobe and high desert",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/Palace%20of%20the%20Governors.jpg?width=800",
     flightDestination: "Santa Fe",
     destinationAirports: ["SAF", "ABQ"],
     departDate: "2026-10-06",
@@ -501,6 +519,8 @@ const additionalDestinations: Destination[] = [
     mapQuery: "Victoria Vancouver Island British Columbia",
     tripType: "Gardens, coast, food, and quiet apartment or cottage days",
     moodLabel: "gardens and coast",
+    photoUrl:
+      "https://commons.wikimedia.org/wiki/Special:FilePath/British%20Columbia%20Parliament%20Buildings%20-%20Pano%20-%20HDR.jpg?width=800",
     flightDestination: "Victoria",
     destinationAirports: ["YYJ", "YVR", "SEA"],
     departDate: "2026-09-15",
@@ -550,7 +570,7 @@ const seededDestinations: Destination[] = [
       accentName: "terracotta",
       bannerClass: "bg-[linear-gradient(135deg,#a9482e_0%,#d9793d_48%,#f2b36f_100%)]",
       photoUrl:
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/33037-Cascais_%2835538412783%29.jpg/250px-33037-Cascais_%2835538412783%29.jpg",
+        "https://commons.wikimedia.org/wiki/Special:FilePath/33037-Cascais%20%2835538412783%29.jpg?width=800",
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#7a210e]/95 via-[#b5431f]/72 to-[#b5431f]/8",
@@ -668,8 +688,7 @@ const seededDestinations: Destination[] = [
     visualTheme: {
       accentName: "emilia blue",
       bannerClass: "bg-[linear-gradient(135deg,#163b63_0%,#2f6f9f_50%,#84b7d5_100%)]",
-      photoUrl:
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Portici-1.jpg/330px-Portici-1.jpg",
+      photoUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Portici-1.jpg?width=800",
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#061f46]/96 via-[#174f86]/76 to-[#174f86]/8",
@@ -799,7 +818,7 @@ const seededDestinations: Destination[] = [
       accentName: "sea ochre",
       bannerClass: "bg-[linear-gradient(135deg,#0f6f73_0%,#2a9aa0_48%,#d8a24a_100%)]",
       photoUrl:
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Morocco_-_Essaouira_Part_2_%2831679848385%29.jpg/330px-Morocco_-_Essaouira_Part_2_%2831679848385%29.jpg",
+        "https://commons.wikimedia.org/wiki/Special:FilePath/Morocco%20-%20Essaouira%20Part%202%20%2831679848385%29.jpg?width=800",
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#00494f]/96 via-[#087b84]/74 to-[#087b84]/8",
@@ -915,7 +934,8 @@ const seededDestinations: Destination[] = [
     visualTheme: {
       accentName: "alpine green",
       bannerClass: "bg-[linear-gradient(135deg,#315b3d_0%,#6f8d4e_52%,#d3b95d_100%)]",
-      photoUrl: "https://www.wideworldtrips.com/wp-content/uploads/2023/04/hauptplatz-graz.jpg",
+      photoUrl:
+        "https://commons.wikimedia.org/wiki/Special:FilePath/Graz-hauptplatz-2007.jpg?width=800",
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#233d12]/96 via-[#557a2c]/74 to-[#557a2c]/8",
