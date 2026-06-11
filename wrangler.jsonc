@@ -24,11 +24,9 @@
     }
   },
   "vars": {
-    "WATCH_DAILY_CAP": "25",
     "WATCH_REFRESH_STALE_HOURS": "24",
     "WATCH_MAX_DESTINATIONS": "20",
     "AI_PROVIDER": "gemini",
-    "AI_DAILY_CAP": "5",
     "GEMINI_MODEL": "gemini-3.5-flash"
   }
 }
