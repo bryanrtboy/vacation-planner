@@ -1,5 +1,19 @@
 export type TripLength = "7-nights" | "1-month";
 
+export type TripPreferences = {
+  departure: string;
+  nights: number;
+  lodging: string;
+  interests: string;
+};
+
+export type TripWindow = {
+  departDate: string;
+  returnDate: string;
+  label: string;
+  reason: string;
+};
+
 export type TransportMode =
   | "Train-first"
   | "No car needed"
@@ -95,6 +109,10 @@ export type WatchedSearch = {
   route: string;
   season: string;
   tripLength: TripLength;
+  origin?: string;
+  departDate?: string;
+  returnDate?: string;
+  destinationAirports?: string[];
   lastCheckedAt?: string;
   lastRange?: {
     min: number;

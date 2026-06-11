@@ -32,18 +32,28 @@ function normalizeFare(
 
   if (!totals.length) return null;
 
-  const min = Math.round(Math.min(...totals));
-  const max = Math.round(Math.max(...totals));
-  const sampledDates = `${context.destination.flightSearch.departDate}-${context.destination.flightSearch.returnDate}`;
+  const sortedTotals = [...totals].sort((first, second) => first - second);
+  const min = Math.round(sortedTotals[0]);
+  const displayCeiling = min + 250;
+  const displayedTotals = sortedTotals.filter((total) => total <= displayCeiling);
+  const max = Math.round(displayedTotals.at(-1) ?? sortedTotals[0]);
+  const flightSearch = {
+    ...context.destination.flightSearch,
+    origin: context.search.origin ?? context.destination.flightSearch.origin,
+    departDate: context.search.departDate ?? context.destination.flightSearch.departDate,
+    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate
+  };
+  const sampledDates = `${flightSearch.departDate}-${flightSearch.returnDate}`;
 
   return {
     min,
     max,
     currency: "USD",
     offerCount: totals.length,
+    displayedOfferCount: displayedTotals.length,
     sampledDates,
     retrievedAt: new Date().toISOString(),
-    sourceUrl: response.search_metadata?.google_flights_url ?? googleFlightsSearchUrl(context.destination.flightSearch)
+    sourceUrl: response.search_metadata?.google_flights_url ?? googleFlightsSearchUrl(flightSearch)
   };
 }
 
@@ -53,7 +63,13 @@ function unavailableResult(
   error?: unknown
 ): WatchRefreshResult {
   const errorDetail = error instanceof Error ? ` ${error.message}` : "";
-  const sourceUrl = googleFlightsSearchUrl(context.destination.flightSearch);
+  const flightSearch = {
+    ...context.destination.flightSearch,
+    origin: context.search.origin ?? context.destination.flightSearch.origin,
+    departDate: context.search.departDate ?? context.destination.flightSearch.departDate,
+    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate
+  };
+  const sourceUrl = googleFlightsSearchUrl(flightSearch);
 
   return {
     id: context.search.id,
@@ -63,7 +79,7 @@ function unavailableResult(
     message: `${message}${errorDetail}`,
     provider: "SerpApi Google Flights",
     previousRange: context.search.lastRange,
-    sampledDates: `${context.destination.flightSearch.departDate}-${context.destination.flightSearch.returnDate}`,
+    sampledDates: `${flightSearch.departDate}-${flightSearch.returnDate}`,
     retrievedAt: new Date().toISOString(),
     sourceUrl,
     sourceDetail:
@@ -84,12 +100,22 @@ export async function sampleSerpApiFare(
     return unavailableResult(context, "SerpApi key is not configured.");
   }
 
-  const { flightSearch } = context.destination;
+  const flightSearch = {
+    ...context.destination.flightSearch,
+    origin: context.search.origin ?? context.destination.flightSearch.origin,
+    departDate: context.search.departDate ?? context.destination.flightSearch.departDate,
+    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate,
+    destinationAirports:
+      context.search.destinationAirports ?? context.destination.flightSearch.destinationAirports
+  };
   const params = new URLSearchParams({
     engine: "google_flights",
     api_key: key,
     type: "1",
     travel_class: "1",
+    deep_search: "true",
+    show_hidden: "true",
+    sort_by: "2",
     departure_id: flightSearch.origin,
     arrival_id: flightSearch.destinationAirports[0] ?? flightSearch.destination,
     outbound_date: flightSearch.departDate,
@@ -124,7 +150,7 @@ export async function sampleSerpApiFare(
       status: "checked",
       message: `Live Google Flights airfare sampled ${fare.offerCount} result${
         fare.offerCount === 1 ? "" : "s"
-      } via SerpApi for ${context.search.route}.`,
+      } via SerpApi for ${context.search.route}; displayed range uses the lowest ${fare.displayedOfferCount}.`,
       provider: "SerpApi Google Flights",
       previousRange: context.search.lastRange,
       currentRange: { min: fare.min, max: fare.max },
@@ -132,7 +158,7 @@ export async function sampleSerpApiFare(
       retrievedAt: fare.retrievedAt,
       sourceUrl: fare.sourceUrl,
       sourceDetail:
-        "Live airfare sampled from SerpApi Google Flights for the seeded route and dates.",
+        "Live airfare sampled from SerpApi Google Flights deep search. The displayed range uses the lowest fare cluster and excludes much higher outliers.",
       sourceKind: "live"
     };
   } catch (error) {

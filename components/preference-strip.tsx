@@ -2,23 +2,13 @@
 
 import { BedDouble, CalendarDays, MapPin, Palette } from "lucide-react";
 import { useEffect, useState } from "react";
-import { defaultPreferences } from "@/lib/settings";
-
-const storageKey = "artist-travel-finder:preferences";
-
-type PreferenceValues = {
-  departure: string;
-  length: string;
-  lodging: string;
-  interests: string;
-};
-
-const defaults: PreferenceValues = {
-  departure: defaultPreferences.homeAirport,
-  length: defaultPreferences.tripLength,
-  lodging: "rentals first",
-  interests: "art · food · gardens"
-};
+import {
+  defaultTripPreferences,
+  readTripPreferences,
+  tripLengthLabel,
+  writeTripPreferences
+} from "@/lib/trip-preferences";
+import type { TripPreferences } from "@/lib/types";
 
 const items = [
   {
@@ -29,9 +19,9 @@ const items = [
   },
   {
     icon: CalendarDays,
-    key: "length",
-    label: "Length",
-    title: "Default trip length"
+    key: "nights",
+    label: "Room nights",
+    title: "Number of room nights"
   },
   {
     icon: BedDouble,
@@ -47,31 +37,33 @@ const items = [
   }
 ] as const;
 
-function readPreferences() {
-  if (typeof window === "undefined") return defaults;
-  const raw = window.localStorage.getItem(storageKey);
-  if (!raw) return defaults;
-  try {
-    return { ...defaults, ...(JSON.parse(raw) as Partial<PreferenceValues>) };
-  } catch {
-    return defaults;
-  }
-}
-
 export function PreferenceStrip() {
-  const [preferences, setPreferences] = useState<PreferenceValues>(defaults);
+  const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
 
   useEffect(() => {
-    const id = window.setTimeout(() => setPreferences(readPreferences()), 0);
+    const id = window.setTimeout(() => setPreferences(readTripPreferences()), 0);
     return () => window.clearTimeout(id);
   }, []);
 
-  function editPreference(key: keyof PreferenceValues, title: string) {
-    const nextValue = window.prompt(title, preferences[key]);
+  function displayValue(key: keyof TripPreferences) {
+    if (key === "nights") return tripLengthLabel(preferences.nights);
+    return preferences[key];
+  }
+
+  function editPreference(key: keyof TripPreferences, title: string) {
+    const nextValue = window.prompt(title, String(preferences[key]));
     if (!nextValue?.trim()) return;
-    const nextPreferences = { ...preferences, [key]: nextValue.trim() };
+    const nextPreferences = {
+      ...preferences,
+      [key]:
+        key === "nights"
+          ? Math.min(Math.max(Math.round(Number(nextValue.trim())), 1), 60)
+          : nextValue.trim()
+    };
+    if (!Number.isFinite(nextPreferences.nights)) nextPreferences.nights = preferences.nights;
+    nextPreferences.departure = nextPreferences.departure.toUpperCase();
     setPreferences(nextPreferences);
-    window.localStorage.setItem(storageKey, JSON.stringify(nextPreferences));
+    writeTripPreferences(nextPreferences);
   }
 
   return (
@@ -93,7 +85,7 @@ export function PreferenceStrip() {
               {item.label}
             </span>
             <span className="block truncate text-sm font-semibold text-ink/78">
-              {preferences[item.key]}
+              {displayValue(item.key)}
             </span>
           </span>
         </button>

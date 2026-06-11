@@ -3,32 +3,52 @@ import { sampleWatchedFare } from "@/lib/flights/provider";
 import { destinations, getDestination } from "@/lib/seed-data";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { WATCH_REFRESH_STALE_HOURS } from "@/lib/settings";
-import type { WatchedSearch, WatchRefreshResult } from "@/lib/types";
+import { defaultTripPreferences, recommendedTripWindow } from "@/lib/trip-preferences";
+import type { TripPreferences, WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-function watchedSearchForSlug(slug: string): WatchedSearch | null {
+function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
+  const nights = Number(preferences?.nights);
+  return {
+    ...defaultTripPreferences,
+    ...preferences,
+    departure: (preferences?.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+    nights: Number.isFinite(nights) ? Math.min(Math.max(Math.round(nights), 1), 60) : defaultTripPreferences.nights
+  };
+}
+
+function watchedSearchForSlug(slug: string, preferences: TripPreferences): WatchedSearch | null {
   const destination = getDestination(slug);
   if (!destination) return null;
+  const tripWindow = recommendedTripWindow(destination, preferences.nights);
 
   return {
     id: `${destination.slug}-card-snapshot`,
     destinationSlug: destination.slug,
     destinationName: destination.name,
-    route: `${destination.flightSearch.origin} to ${destination.flightSearch.destination}`,
+    route: `${preferences.departure} to ${destination.flightSearch.destination}`,
     season: destination.bestMonths,
-    tripLength: "7-nights"
+    tripLength: preferences.nights >= 28 ? "1-month" : "7-nights",
+    origin: preferences.departure,
+    departDate: tripWindow.departDate,
+    returnDate: tripWindow.returnDate,
+    destinationAirports: destination.flightSearch.destinationAirports
   };
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { slugs?: string[] } | null;
+  const body = (await request.json().catch(() => null)) as {
+    preferences?: Partial<TripPreferences>;
+    slugs?: string[];
+  } | null;
+  const preferences = normalizePreferences(body?.preferences);
   const requestedSlugs = body?.slugs?.length
     ? body.slugs
     : destinations.map((destination) => destination.slug);
   const uniqueSlugs = [...new Set(requestedSlugs)];
   const searches = uniqueSlugs
-    .map(watchedSearchForSlug)
+    .map((slug) => watchedSearchForSlug(slug, preferences))
     .filter((search): search is WatchedSearch => Boolean(search));
 
   const reservation = tryReserveChecks(searches.length);

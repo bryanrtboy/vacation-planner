@@ -16,6 +16,7 @@ export type NormalizedFare = {
   max: number;
   currency: "USD";
   offerCount: number;
+  displayedOfferCount: number;
   sampledDates: string;
   retrievedAt: string;
   sourceUrl?: string;

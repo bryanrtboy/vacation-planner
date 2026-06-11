@@ -1,12 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DestinationCard } from "@/components/destination-card";
+import {
+  defaultTripPreferences,
+  readTripPreferences,
+  recommendedTripWindow,
+  tripPreferencesChangedEvent
+} from "@/lib/trip-preferences";
 import type { Destination, UsageState, WatchRefreshResult } from "@/lib/types";
+import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
-const fallbackStaleAfterHours = 24;
-
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -49,31 +54,55 @@ function unavailableSnapshots(slugs: string[], message: string): StoredFareSnaps
   );
 }
 
-function isFresh(snapshot: WatchRefreshResult | undefined, staleAfterHours: number) {
-  if (!snapshot?.retrievedAt) return false;
-  const retrievedAt = new Date(snapshot.retrievedAt).getTime();
-  if (Number.isNaN(retrievedAt)) return false;
-  const ageHours = (Date.now() - retrievedAt) / (1000 * 60 * 60);
-  return ageHours < staleAfterHours;
-}
-
 export function DestinationGrid({ destinations }: { destinations: Destination[] }) {
   const [snapshots, setSnapshots] = useState<StoredFareSnapshots>(readStoredSnapshots);
-  const [staleAfterHours, setStaleAfterHours] = useState(fallbackStaleAfterHours);
+  const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [statusMessage, setStatusMessage] = useState("");
-  const requestedSlugsRef = useRef(new Set<string>());
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
   );
+  const tripWindows = useMemo(
+    () =>
+      Object.fromEntries(
+        destinations.map((destination) => [
+          destination.slug,
+          recommendedTripWindow(destination, preferences.nights)
+        ])
+      ),
+    [destinations, preferences.nights]
+  );
+  const snapshotKey = useCallback(
+    (slug: string) => {
+      const tripWindow = tripWindows[slug];
+      return `${slug}:${preferences.departure}:${tripWindow?.departDate}:${tripWindow?.returnDate}`;
+    },
+    [preferences.departure, tripWindows]
+  );
   const checkingCount = checkingSlugs.size;
-  const checkedCount = destinationSlugs.filter((slug) => snapshots[slug]?.status === "checked").length;
+  const checkedCount = destinationSlugs.filter(
+    (slug) => snapshots[snapshotKey(slug)]?.status === "checked"
+  ).length;
   const unavailableCount = destinationSlugs.filter((slug) => {
-    const snapshot = snapshots[slug];
+    const snapshot = snapshots[snapshotKey(slug)];
     return snapshot && snapshot.status !== "checked";
   }).length;
+
+  useEffect(() => {
+    function syncPreferences() {
+      setPreferences(readTripPreferences());
+    }
+
+    syncPreferences();
+    window.addEventListener(tripPreferencesChangedEvent, syncPreferences);
+    window.addEventListener("storage", syncPreferences);
+    return () => {
+      window.removeEventListener(tripPreferencesChangedEvent, syncPreferences);
+      window.removeEventListener("storage", syncPreferences);
+    };
+  }, []);
 
   const refreshFareSnapshots = useCallback(
     async (slugs: string[], options: { manual?: boolean } = {}) => {
@@ -86,7 +115,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const response = await fetch("/api/airfare/snapshots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slugs })
+          body: JSON.stringify({ preferences, slugs })
         });
 
         if (!response.ok) throw new Error("Unable to refresh airfare snapshots.");
@@ -94,10 +123,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const nextSnapshots = { ...readStoredSnapshots() };
 
         setUsage(data.usage);
-        setStaleAfterHours(data.staleAfterHours);
 
         for (const result of data.results) {
-          nextSnapshots[result.destinationSlug] = result;
+          nextSnapshots[snapshotKey(result.destinationSlug)] = result;
         }
 
         writeStoredSnapshots(nextSnapshots);
@@ -110,7 +138,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       } catch {
         const nextSnapshots = {
           ...readStoredSnapshots(),
-          ...unavailableSnapshots(slugs, "Unable to connect to the airfare snapshot API.")
+          ...Object.fromEntries(
+            Object.entries(unavailableSnapshots(slugs, "Unable to connect to the airfare snapshot API.")).map(
+              ([slug, result]) => [snapshotKey(slug), result]
+            )
+          )
         };
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
@@ -123,18 +155,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    []
+    [preferences, snapshotKey]
   );
-
-  useEffect(() => {
-    const missingSlugs = destinationSlugs.filter(
-      (slug) => !isFresh(snapshots[slug], staleAfterHours) && !requestedSlugsRef.current.has(slug)
-    );
-    if (!missingSlugs.length) return;
-
-    missingSlugs.forEach((slug) => requestedSlugsRef.current.add(slug));
-    void refreshFareSnapshots(missingSlugs);
-  }, [destinationSlugs, refreshFareSnapshots, snapshots, staleAfterHours]);
 
   return (
     <>
@@ -143,7 +165,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           {checkingCount
             ? `Checking airfare for ${checkingCount} ${checkingCount === 1 ? "trip" : "trips"}...`
             : statusMessage ||
-              `${checkedCount} live fare${checkedCount === 1 ? "" : "s"} · ${unavailableCount} unavailable`}
+              `Airfare checks run only when you click Check now · ${checkedCount} live fare${
+                checkedCount === 1 ? "" : "s"
+              } · ${unavailableCount} unavailable`}
           {usage ? ` · ${usage.remaining}/${usage.limit} checks left` : ""}
         </span>
       </div>
@@ -153,9 +177,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           <DestinationCard
             key={destination.slug}
             destination={destination}
-            fareSnapshot={snapshots[destination.slug]}
+            fareSnapshot={snapshots[snapshotKey(destination.slug)]}
             isCheckingFare={checkingSlugs.has(destination.slug)}
             onCheckFare={() => void refreshFareSnapshots([destination.slug], { manual: true })}
+            preferences={preferences}
+            tripWindow={tripWindows[destination.slug]}
           />
         ))}
       </div>
