@@ -200,11 +200,21 @@ export type DestinationSuggestion = {
     tradeoffs: string;
     airportTargets: string[];
     lodgingAngle: string;
+    diningEstimate?: {
+      minDailyUsdForTwo: number;
+      maxDailyUsdForTwo: number;
+      confidence: "low" | "medium" | "high";
+      rationale: string;
+    };
     interests: string[];
+    artNotes?: string[];
+    foodNotes?: string[];
+    landscapeNotes?: string[];
+    offbeatFinds?: string[];
     starterLinks?: {
       label: string;
       url: string;
-      kind: "art" | "food" | "lodging" | "transport" | "guide";
+      kind: "art" | "food" | "lodging" | "transport" | "guide" | "landscape" | "day-trip";
     }[];
     photoSearch?: string;
   };

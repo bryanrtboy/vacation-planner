@@ -10,7 +10,7 @@ export function Header() {
 
   return (
     <header className="border-b border-ink/10 bg-paper/86 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
+      <div className="mx-auto flex max-w-[94rem] items-center justify-between px-5 py-4 sm:px-8 xl:px-10">
         <div className="flex items-center gap-3">
           <div className="flex size-10 items-center justify-center rounded-md bg-harbor text-white">
             <Plane size={20} aria-hidden="true" />

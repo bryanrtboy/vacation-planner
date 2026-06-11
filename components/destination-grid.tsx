@@ -23,8 +23,8 @@ import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
 const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
-const initialVisibleDestinations = 4;
-const destinationPageSize = 4;
+const initialVisibleDestinations = 9;
+const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTransportFilter = "all";
 const noScoreSort = "none";
@@ -184,6 +184,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
   const [focusedSavedSearch, setFocusedSavedSearch] = useState<SavedSearchSummary | null>(null);
   const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
+  const [expandedDestinationSlugs, setExpandedDestinationSlugs] = useState<Set<string>>(
+    () => new Set()
+  );
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
   const [suggestingDestinations, setSuggestingDestinations] = useState(false);
@@ -708,6 +711,60 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
   }, []);
 
+  const desktopColumns = visibleDestinations.reduce<Destination[][]>(
+    (columns, destination, index) => {
+      columns[index % columns.length].push(destination);
+      return columns;
+    },
+    [[], []]
+  );
+
+  function renderDestinationCard(destination: Destination) {
+    const activePreferences = scenarioPreferences(destination.slug);
+    const tripWindow = tripWindowFor(destination, activePreferences);
+    const lodgingMode = lodgingModeFromPreference(activePreferences.lodging);
+    const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
+    const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
+    const isExpanded = expandedDestinationSlugs.has(destination.slug);
+
+    return (
+      <DestinationCard
+        key={destination.slug}
+        destination={destination}
+        fareSnapshot={snapshots[fareKey]}
+        lodgingMode={lodgingMode}
+        lodgingSnapshot={lodgingSnapshots[activeLodgingKey]}
+        isCheckingFare={checkingSlugs.has(destination.slug)}
+        isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
+        onCheckFare={() =>
+          void refreshFareSnapshots([destination.slug], { manual: true }, activePreferences)
+        }
+        onCheckLodging={() =>
+          void refreshLodgingSnapshots([destination.slug], { manual: true }, activePreferences)
+        }
+        onScenarioChange={(nextPreferences) =>
+          updateCardScenario(destination, nextPreferences)
+        }
+        usage={usage ?? lodgingUsage}
+        preferences={activePreferences}
+        tripWindow={tripWindow}
+        savedSearches={savedSearches}
+        isExpanded={isExpanded}
+        onExpandedChange={(expanded) =>
+          setExpandedDestinationSlugs((current) => {
+            const next = new Set(current);
+            if (expanded) {
+              next.add(destination.slug);
+            } else {
+              next.delete(destination.slug);
+            }
+            return next;
+          })
+        }
+      />
+    );
+  }
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3 text-xs text-ink/58">
@@ -885,40 +942,43 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       </div>
 
       {visibleDestinations.length ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {visibleDestinations.map((destination) => {
-            const activePreferences = scenarioPreferences(destination.slug);
-            const tripWindow = tripWindowFor(destination, activePreferences);
-            const lodgingMode = lodgingModeFromPreference(activePreferences.lodging);
-            const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
-            const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
-
-            return (
-              <DestinationCard
-                key={destination.slug}
-                destination={destination}
-                fareSnapshot={snapshots[fareKey]}
-                lodgingMode={lodgingMode}
-                lodgingSnapshot={lodgingSnapshots[activeLodgingKey]}
-                isCheckingFare={checkingSlugs.has(destination.slug)}
-                isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
-                onCheckFare={() =>
-                  void refreshFareSnapshots([destination.slug], { manual: true }, activePreferences)
-                }
-                onCheckLodging={() =>
-                  void refreshLodgingSnapshots([destination.slug], { manual: true }, activePreferences)
-                }
-                onScenarioChange={(nextPreferences) =>
-                  updateCardScenario(destination, nextPreferences)
-                }
-                usage={usage ?? lodgingUsage}
-                preferences={activePreferences}
-                tripWindow={tripWindow}
-                savedSearches={savedSearches}
-              />
-            );
-          })}
+        <div className="mb-5 flex flex-wrap items-center justify-end gap-2 text-xs text-ink/58">
+          <span className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedDestinationSlugs(
+                  new Set(visibleDestinations.map((destination) => destination.slug))
+                )
+              }
+              className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpandedDestinationSlugs(new Set())}
+              className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              Collapse all
+            </button>
+          </span>
         </div>
+      ) : null}
+
+      {visibleDestinations.length ? (
+        <>
+          <div className="grid gap-6 md:hidden">
+            {visibleDestinations.map((destination) => renderDestinationCard(destination))}
+          </div>
+          <div className="hidden gap-6 md:grid md:grid-cols-2">
+            {desktopColumns.map((column, index) => (
+              <div key={index} className="min-w-0">
+                {column.map((destination) => renderDestinationCard(destination))}
+              </div>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="rounded-md border border-ink/8 bg-white/60 px-4 py-8 text-center text-sm font-medium text-ink/54">
           No destinations match the current region, transport, and interest settings.

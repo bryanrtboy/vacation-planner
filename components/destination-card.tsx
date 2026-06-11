@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useState } from "react";
+import Image from "next/image";
 import {
   ChevronDown,
   ExternalLink,
@@ -161,7 +162,9 @@ function tripCostSummary(
   const missing = [
     !airfare || unavailable ? "airfare" : undefined,
     typeof lodgingCost !== "number" ? "lodging" : undefined,
-    typeof diningCost !== "number" ? "dining" : undefined
+    typeof diningCost !== "number" && destination.dining.sourceKind !== "unavailable"
+      ? "dining"
+      : undefined
   ].filter((value): value is string => Boolean(value));
   const checking = isCheckingFare || isCheckingLodging;
 
@@ -173,6 +176,13 @@ function tripCostSummary(
   const checkingSuffix = checking ? "; checking prices" : "";
 
   return `Cost around ${roundedCost(total)}${suffix}${checkingSuffix}.`;
+}
+
+function compactTripCostSummary(summary: string) {
+  return summary
+    .replace(/^Cost around\s+/i, "")
+    .replace(/^Cost\s+/i, "")
+    .replace(/\.$/, "");
 }
 
 function rangeLabel(range: { min: number; max: number }) {
@@ -1142,7 +1152,9 @@ export function DestinationCard({
   usage,
   preferences,
   tripWindow,
-  savedSearches = []
+  savedSearches = [],
+  isExpanded,
+  onExpandedChange
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
@@ -1157,6 +1169,8 @@ export function DestinationCard({
   preferences: TripPreferences;
   tripWindow: TripWindow;
   savedSearches?: SavedSearchSummary[];
+  isExpanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
@@ -1174,26 +1188,103 @@ export function DestinationCard({
             : "planning estimate from"
       } ${shortDate(airfare.retrievedAt)}`
     : undefined;
-  const bannerStyle = photoUrl
-    ? {
-        backgroundImage: `${theme.photoOverlay}, url("${photoUrl}")`,
-        backgroundPosition: theme.photoPosition ?? "center"
-      }
-    : undefined;
+  const photoObjectPosition = theme.photoPosition ?? "center";
+  const costSummary = tripCostSummary(
+    destination,
+    airfare,
+    preferences.nights,
+    lodgingSnapshot,
+    unavailableFare,
+    isCheckingFare,
+    isCheckingLodging
+  );
+
+  if (!isExpanded) {
+    return (
+      <article className={`mb-6 inline-block w-full break-inside-avoid overflow-hidden rounded-md border-2 bg-white ${theme.cardClass}`}>
+        <div
+          className={`relative min-h-[246px] w-full overflow-hidden text-left text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-harbor/45 ${theme.bannerClass}`}
+        >
+          {photoUrl ? (
+            <Image
+              src={photoUrl}
+              alt=""
+              fill
+              unoptimized
+              sizes="(min-width: 768px) 50vw, 100vw"
+              className="object-cover"
+              style={{ objectPosition: photoObjectPosition }}
+              aria-hidden="true"
+            />
+          ) : null}
+          <span
+            className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
+            aria-hidden="true"
+          />
+          <span
+            className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.64)_34%,rgba(0,0,0,0.32)_58%,rgba(0,0,0,0)_100%)]"
+            aria-hidden="true"
+          />
+          <PhotoTools destination={destination} photoUrl={photoUrl} onPhotoChange={setPhotoUrl} />
+          <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
+            <div className="min-w-0 pb-14">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
+                {destination.region} · {theme.moodLabel}
+              </p>
+              <h3 className="mt-2 text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
+                <a
+                  href={mapsUrl(destination)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 transition hover:text-white/78"
+                >
+                  {destination.name}
+                  <MapPin size={28} className="shrink-0 sm:size-9" aria-hidden="true" />
+                </a>
+              </h3>
+              <p className="mt-2 text-base font-semibold leading-5 text-white/94">
+                {compactTripCostSummary(costSummary)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onExpandedChange(true)}
+              className={`absolute bottom-5 left-5 inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-white/22 ${theme.highlightClass} shadow-[0_8px_20px_rgb(0_0_0_/_0.24)] transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70`}
+              aria-expanded={false}
+              aria-label={`Open ${destination.name} details`}
+            >
+              <ChevronDown size={22} strokeWidth={3} className="-rotate-90" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   return (
-    <article className={`overflow-visible rounded-md border-2 bg-white ${theme.cardClass}`}>
+    <article className={`mb-6 inline-block w-full break-inside-avoid overflow-visible rounded-md border-2 bg-white ${theme.cardClass}`}>
       <div
-        className={`relative min-h-[224px] bg-cover text-white ${theme.bannerClass}`}
-        style={bannerStyle}
+        className={`relative min-h-[246px] overflow-hidden text-white ${theme.bannerClass}`}
       >
+        {photoUrl ? (
+          <Image
+            src={photoUrl}
+            alt=""
+            fill
+            unoptimized
+            sizes="(min-width: 768px) 50vw, 100vw"
+            className="object-cover"
+            style={{ objectPosition: photoObjectPosition }}
+            aria-hidden="true"
+          />
+        ) : null}
         <div
           className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/14 to-transparent" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.62)_34%,rgba(0,0,0,0.3)_58%,rgba(0,0,0,0)_100%)]" />
         <PhotoTools destination={destination} photoUrl={photoUrl} onPhotoChange={setPhotoUrl} />
-        <div className="relative px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.72),_0_1px_1px_rgb(0_0_0_/_0.9)]">
-          <div className="min-w-0">
+        <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
+          <div className="min-w-0 pb-14">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
               {destination.region} · {theme.moodLabel}
             </p>
@@ -1208,7 +1299,19 @@ export function DestinationCard({
                 <MapPin size={28} className="shrink-0 sm:size-9" aria-hidden="true" />
               </a>
             </h3>
+            <p className="mt-2 text-base font-semibold leading-5 text-white/94">
+              {compactTripCostSummary(costSummary)}
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => onExpandedChange(false)}
+            className={`absolute bottom-5 left-5 inline-flex size-10 items-center justify-center rounded-md border border-white/22 ${theme.highlightClass} shadow-[0_8px_20px_rgb(0_0_0_/_0.24)] transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70`}
+            aria-expanded={true}
+            aria-label={`Collapse ${destination.name} details`}
+          >
+            <ChevronDown size={22} strokeWidth={3} aria-hidden="true" />
+          </button>
         </div>
       </div>
 
@@ -1219,18 +1322,7 @@ export function DestinationCard({
           </div>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
-            {destination.fitSummary}{" "}
-            <span className="font-semibold text-ink">
-              {tripCostSummary(
-                destination,
-                airfare,
-                preferences.nights,
-                lodgingSnapshot,
-                unavailableFare,
-                isCheckingFare,
-                isCheckingLodging
-              )}
-            </span>
+            {destination.fitSummary}
           </p>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
@@ -1304,12 +1396,14 @@ export function DestinationCard({
                     usage={usage}
                   />
                 )}
-                <CompactPriceLink
-                  href={diningTripPrice.sourceUrl}
-                  label={diningTripPrice.label}
-                  eyebrow="Dining estimate"
-                  price={diningTripPrice}
-                />
+                {diningTripPrice.sourceKind !== "unavailable" ? (
+                  <CompactPriceLink
+                    href={diningTripPrice.sourceUrl}
+                    label={diningTripPrice.label}
+                    eyebrow="Dining estimate"
+                    price={diningTripPrice}
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>

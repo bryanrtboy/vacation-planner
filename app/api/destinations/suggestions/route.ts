@@ -70,6 +70,40 @@ function transportNoteFromSuggestion(suggestion: DestinationSuggestion, airportT
   return `Use ${suggestion.name} as the base, then verify whether the best day trips need trains, drivers, or a short rental car.${airportText} ${suggestion.payload.tradeoffs}`;
 }
 
+function diningFromSuggestion(suggestion: DestinationSuggestion): Destination["dining"] {
+  const estimate = suggestion.payload.diningEstimate;
+  const retrievedAt = new Date().toISOString();
+
+  if (!estimate) {
+    return {
+      min: 0,
+      max: 0,
+      currency: "USD",
+      label: "Dining not estimated",
+      provider: "Suggested idea",
+      sampledDates: "Not checked",
+      retrievedAt,
+      sourceDetail: "Dining has not been estimated for this suggested destination yet.",
+      sourceKind: "unavailable"
+    };
+  }
+
+  const min = Math.max(1, Math.round(estimate.minDailyUsdForTwo));
+  const max = Math.max(min, Math.round(estimate.maxDailyUsdForTwo));
+
+  return {
+    min,
+    max,
+    currency: "USD",
+    label: `$${min}-$${max}/day for two`,
+    provider: "Gemini planning dining estimate",
+    sampledDates: `AI planning estimate, ${estimate.confidence} confidence`,
+    retrievedAt,
+    sourceDetail: estimate.rationale,
+    sourceKind: "mock"
+  };
+}
+
 function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
   if (!preferences) return defaultTripPreferences;
 
@@ -186,30 +220,35 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
         sourceKind: "unavailable"
       }
     },
-    dining: {
-      min: 0,
-      max: 0,
-      currency: "USD",
-      label: "Dining not estimated",
-      provider: "Suggested idea",
-      sampledDates: "Not checked",
-      retrievedAt: new Date().toISOString(),
-      sourceDetail: "Dining has not been estimated for this suggested destination yet.",
-      sourceKind: "unavailable"
-    },
-    highlights: suggestion.payload.interests,
+    dining: diningFromSuggestion(suggestion),
+    highlights: [
+      ...suggestion.payload.interests,
+      ...(suggestion.payload.artNotes ?? []),
+      ...(suggestion.payload.foodNotes ?? []),
+      ...(suggestion.payload.landscapeNotes ?? []),
+      ...(suggestion.payload.offbeatFinds ?? [])
+    ].slice(0, 12),
     curatedFinds: suggestion.payload.starterLinks?.map((link) => ({
       label: link.label,
       note: "Starter research link from the suggestion.",
       url: link.url,
-      kind: link.kind === "guide" || link.kind === "transport" ? "day-trip" : link.kind
+      kind:
+        link.kind === "guide" || link.kind === "transport" || link.kind === "day-trip"
+          ? "day-trip"
+          : link.kind
     })),
     retreatNote: suggestion.payload.photoSearch,
     links:
       suggestion.payload.starterLinks?.map((link) => ({
         label: link.label,
         url: link.url,
-        kind: link.kind === "food" ? "guide" : link.kind
+        kind:
+          link.kind === "art" ||
+          link.kind === "lodging" ||
+          link.kind === "transport" ||
+          link.kind === "guide"
+            ? link.kind
+            : "guide"
       })) ?? []
   };
 }

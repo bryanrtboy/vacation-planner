@@ -11,7 +11,7 @@ export default async function HomePage() {
   return (
     <main className="min-h-screen">
       <Header />
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-5 pb-16 pt-5 sm:px-8">
+      <div className="mx-auto flex w-full max-w-[94rem] flex-col gap-5 px-5 pb-16 pt-5 sm:px-8 xl:px-10">
         <PreferenceStrip />
 
         <section>
