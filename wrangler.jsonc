@@ -4,12 +4,17 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-06-10",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
   "observability": {
-    "enabled": true
+    "enabled": false,
+    "logs": {
+      "enabled": false
+    }
   },
   "vars": {
     "WATCH_DAILY_CAP": "25",
