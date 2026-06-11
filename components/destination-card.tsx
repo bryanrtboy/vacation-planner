@@ -8,6 +8,7 @@ import {
   EyeOff,
   Info,
   MapPin,
+  RefreshCw,
 } from "lucide-react";
 import type { Destination, PriceRange, WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
@@ -68,7 +69,16 @@ function tripCostEstimate(destination: Destination, airfare: PriceRange) {
   return `$${roundedTotal.toLocaleString()}`;
 }
 
-function tripCostSummary(destination: Destination, airfare: PriceRange, unavailable?: WatchRefreshResult) {
+function tripCostSummary(
+  destination: Destination,
+  airfare: PriceRange,
+  unavailable?: WatchRefreshResult,
+  isCheckingFare?: boolean
+) {
+  if (isCheckingFare && !unavailable) {
+    return `Land costs around $${landCostEstimate(destination).toLocaleString()}; checking airfare.`;
+  }
+
   if (unavailable) {
     return `Land costs around $${landCostEstimate(destination).toLocaleString()}; airfare unavailable.`;
   }
@@ -255,7 +265,13 @@ function CompactPriceLink({
   );
 }
 
-function UnavailablePriceLink({ result }: { result: WatchRefreshResult }) {
+function UnavailablePriceLink({
+  result,
+  onCheckFare
+}: {
+  result: WatchRefreshResult;
+  onCheckFare?: () => void;
+}) {
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
@@ -277,7 +293,20 @@ function UnavailablePriceLink({ result }: { result: WatchRefreshResult }) {
             Airfare unavailable
           </span>
         )}
+        <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
+          Last checked {result.retrievedAt ? shortDate(result.retrievedAt) : "recently"}
+        </span>
       </span>
+      {onCheckFare ? (
+        <button
+          type="button"
+          onClick={onCheckFare}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor"
+        >
+          <RefreshCw size={12} aria-hidden="true" />
+          Check now
+        </button>
+      ) : null}
       <InfoButton label="Airfare unavailable detail">
         <span className="block font-semibold text-ink">Airfare unavailable</span>
         <span className="mt-1 block">{result.message}</span>
@@ -290,12 +319,35 @@ function UnavailablePriceLink({ result }: { result: WatchRefreshResult }) {
   );
 }
 
+function CheckingPriceLink() {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
+          Airfare
+        </span>
+        <span className="inline-flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-ink">
+          <RefreshCw size={13} className="shrink-0 animate-spin text-harbor" aria-hidden="true" />
+          Checking airfare...
+        </span>
+        <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
+          Querying live provider
+        </span>
+      </span>
+    </div>
+  );
+}
+
 export function DestinationCard({
   destination,
-  fareSnapshot
+  fareSnapshot,
+  isCheckingFare = false,
+  onCheckFare
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
+  isCheckingFare?: boolean;
+  onCheckFare?: () => void;
 }) {
   const [watched, setWatched] = useState(false);
   const [watch, setWatch] = useState<WatchedSearch | undefined>();
@@ -406,7 +458,7 @@ export function DestinationCard({
           <p className="mt-2 text-sm leading-6 text-ink/74">
             {destination.fitSummary}{" "}
             <span className="font-semibold text-ink">
-              {tripCostSummary(destination, airfare, unavailableFare)}
+              {tripCostSummary(destination, airfare, unavailableFare, isCheckingFare)}
             </span>
           </p>
 
@@ -437,8 +489,10 @@ export function DestinationCard({
 
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
-                {unavailableFare ? (
-                  <UnavailablePriceLink result={unavailableFare} />
+                {isCheckingFare ? (
+                  <CheckingPriceLink />
+                ) : unavailableFare ? (
+                  <UnavailablePriceLink result={unavailableFare} onCheckFare={onCheckFare} />
                 ) : (
                   <CompactPriceLink
                     href={airfare.sourceUrl}
