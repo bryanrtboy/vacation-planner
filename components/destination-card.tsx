@@ -178,11 +178,23 @@ function tripCostSummary(
   return `Cost around ${roundedCost(total)}${suffix}${checkingSuffix}.`;
 }
 
-function compactTripCostSummary(summary: string) {
-  return summary
+function compactLodgingLabel(mode: LodgingMode) {
+  if (mode.id === "hotel") return "hotel";
+  if (mode.id === "group-house") return "group house";
+  return "apartment";
+}
+
+function compactTripCostSummary(summary: string, nights: number, lodgingMode: LodgingMode) {
+  const compact = summary
     .replace(/^Cost around\s+/i, "")
     .replace(/^Cost\s+/i, "")
     .replace(/\.$/, "");
+
+  if (!compact.startsWith("$") || compact.includes(" before ") || compact.includes("checking")) {
+    return compact;
+  }
+
+  return `${compact} – ${tripLengthLabel(nights)} + ${compactLodgingLabel(lodgingMode)}`;
 }
 
 function rangeLabel(range: { min: number; max: number }) {
@@ -1243,7 +1255,7 @@ export function DestinationCard({
                 </a>
               </h3>
               <p className="mt-2 text-base font-semibold leading-5 text-white/94">
-                {compactTripCostSummary(costSummary)}
+                {compactTripCostSummary(costSummary, preferences.nights, lodgingMode)}
               </p>
             </div>
             <button
@@ -1300,7 +1312,7 @@ export function DestinationCard({
               </a>
             </h3>
             <p className="mt-2 text-base font-semibold leading-5 text-white/94">
-              {compactTripCostSummary(costSummary)}
+              {compactTripCostSummary(costSummary, preferences.nights, lodgingMode)}
             </p>
           </div>
           <button

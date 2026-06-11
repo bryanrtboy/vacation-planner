@@ -44,6 +44,76 @@ function stripCodeFence(value: string) {
   return value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 }
 
+function parseSuggestionJson(text: string) {
+  const stripped = stripCodeFence(text);
+
+  try {
+    return JSON.parse(stripped) as { suggestions?: SuggestedDestinationPayload[] };
+  } catch (error) {
+    const suggestions = salvageCompleteSuggestions(stripped);
+    if (suggestions.length) return { suggestions };
+    throw error;
+  }
+}
+
+function salvageCompleteSuggestions(text: string): SuggestedDestinationPayload[] {
+  const suggestionsKeyIndex = text.indexOf('"suggestions"');
+  if (suggestionsKeyIndex < 0) return [];
+
+  const arrayStart = text.indexOf("[", suggestionsKeyIndex);
+  if (arrayStart < 0) return [];
+
+  const suggestions: SuggestedDestinationPayload[] = [];
+  let objectStart = -1;
+  let objectDepth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let index = arrayStart + 1; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaping) {
+      escaping = false;
+      continue;
+    }
+
+    if (inString) {
+      if (char === "\\") {
+        escaping = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (objectDepth === 0) objectStart = index;
+      objectDepth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      objectDepth -= 1;
+      if (objectDepth === 0 && objectStart >= 0) {
+        const objectText = text.slice(objectStart, index + 1);
+        try {
+          suggestions.push(JSON.parse(objectText) as SuggestedDestinationPayload);
+        } catch {
+          // Ignore the partial object and keep any earlier complete suggestions.
+        }
+        objectStart = -1;
+      }
+    }
+  }
+
+  return suggestions;
+}
+
 function parseDiningEstimate(suggestion: SuggestedDestinationPayload) {
   const estimate = suggestion.diningEstimate;
   if (!estimate) return undefined;
@@ -72,7 +142,7 @@ function parseStringList(value: unknown, limit: number) {
 }
 
 function parseSuggestions(text: string): SuggestedDestinationPayload[] {
-  const parsed = JSON.parse(stripCodeFence(text)) as { suggestions?: SuggestedDestinationPayload[] };
+  const parsed = parseSuggestionJson(text);
   if (!Array.isArray(parsed.suggestions)) return [];
 
   return parsed.suggestions
@@ -116,10 +186,11 @@ function parseSuggestions(text: string): SuggestedDestinationPayload[] {
 }
 
 function promptForSuggestions(input: SuggestDestinationsInput) {
-  return `Suggest 3 to 5 travel destination ideas for a personal art-and-slow-travel planner.
+  return `Suggest exactly 3 travel destination ideas for a personal art-and-slow-travel planner.
 
 Hard rules:
 - Return only JSON with a top-level "suggestions" array.
+- Keep every string concise so the JSON is complete.
 - Do not include airfare or lodging prices.
 - Include a rough dining estimate in USD per day for two adults. It can be approximate, but it should be useful for planning. Base it on the local cost level, casual restaurant meals, cafes, markets, and a modest amount of nicer dining. Use confidence "low" when evidence is thin.
 - Do not invent current event dates unless you are confident; describe event/gallery potential generally.
@@ -195,7 +266,7 @@ export async function suggestDestinationsWithGemini(input: SuggestDestinationsIn
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.45,
-        maxOutputTokens: 2200,
+        maxOutputTokens: 5000,
         thinkingConfig: {
           thinkingLevel: "low"
         }
