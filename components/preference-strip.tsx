@@ -10,86 +10,220 @@ import {
 } from "@/lib/trip-preferences";
 import type { TripPreferences } from "@/lib/types";
 
-const items = [
-  {
-    icon: MapPin,
-    key: "departure",
-    label: "Departure",
-    title: "Departure airport or city"
-  },
-  {
-    icon: CalendarDays,
-    key: "nights",
-    label: "Room nights",
-    title: "Number of room nights"
-  },
-  {
-    icon: BedDouble,
-    key: "lodging",
-    label: "Lodging",
-    title: "Lodging preference"
-  },
-  {
-    icon: Palette,
-    key: "interests",
-    label: "Interests",
-    title: "Travel style"
-  }
-] as const;
+const airportOptions = [
+  { code: "DEN", label: "Denver" },
+  { code: "ABQ", label: "Albuquerque" },
+  { code: "ATL", label: "Atlanta" },
+  { code: "AUS", label: "Austin" },
+  { code: "BNA", label: "Nashville" },
+  { code: "BOS", label: "Boston" },
+  { code: "BWI", label: "Baltimore" },
+  { code: "CLT", label: "Charlotte" },
+  { code: "DCA", label: "Washington Reagan" },
+  { code: "DFW", label: "Dallas-Fort Worth" },
+  { code: "DTW", label: "Detroit" },
+  { code: "EWR", label: "Newark" },
+  { code: "IAD", label: "Washington Dulles" },
+  { code: "IAH", label: "Houston" },
+  { code: "JFK", label: "New York JFK" },
+  { code: "LAS", label: "Las Vegas" },
+  { code: "LAX", label: "Los Angeles" },
+  { code: "MCO", label: "Orlando" },
+  { code: "MIA", label: "Miami" },
+  { code: "MSP", label: "Minneapolis-Saint Paul" },
+  { code: "ORD", label: "Chicago O'Hare" },
+  { code: "PDX", label: "Portland" },
+  { code: "PHL", label: "Philadelphia" },
+  { code: "PHX", label: "Phoenix" },
+  { code: "SAN", label: "San Diego" },
+  { code: "SEA", label: "Seattle" },
+  { code: "SFO", label: "San Francisco" },
+  { code: "SLC", label: "Salt Lake City" }
+];
+
+const nightOptions = [
+  { value: 5, label: "5 nights" },
+  { value: 7, label: "7 nights" },
+  { value: 10, label: "10 nights" },
+  { value: 14, label: "14 nights" },
+  { value: 21, label: "21 nights" },
+  { value: 28, label: "28 nights" }
+];
+
+const lodgingOptions = [
+  "rentals first",
+  "hotels",
+  "apartments for 2",
+  "group house rentals",
+  "best total value"
+];
+
+const interestOptions = [
+  "art · food · gardens",
+  "art · craft · coast",
+  "food · trains · architecture",
+  "gardens · landscape · quiet bases",
+  "custom"
+];
+
+function normalizeNights(value: number) {
+  if (!Number.isFinite(value)) return defaultTripPreferences.nights;
+  return Math.min(Math.max(Math.round(value), 1), 60);
+}
 
 export function PreferenceStrip() {
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
+  const [customNightsOpen, setCustomNightsOpen] = useState(false);
+  const [customInterestsOpen, setCustomInterestsOpen] = useState(false);
 
   useEffect(() => {
-    const id = window.setTimeout(() => setPreferences(readTripPreferences()), 0);
+    const id = window.setTimeout(() => {
+      const storedPreferences = readTripPreferences();
+      setPreferences(storedPreferences);
+      setCustomNightsOpen(
+        !nightOptions.some((option) => option.value === storedPreferences.nights)
+      );
+      setCustomInterestsOpen(!interestOptions.includes(storedPreferences.interests));
+    }, 0);
     return () => window.clearTimeout(id);
   }, []);
 
-  function displayValue(key: keyof TripPreferences) {
-    if (key === "nights") return tripLengthLabel(preferences.nights);
-    return preferences[key];
-  }
-
-  function editPreference(key: keyof TripPreferences, title: string) {
-    const nextValue = window.prompt(title, String(preferences[key]));
-    if (!nextValue?.trim()) return;
+  function updatePreferences(next: Partial<TripPreferences>) {
     const nextPreferences = {
       ...preferences,
-      [key]:
-        key === "nights"
-          ? Math.min(Math.max(Math.round(Number(nextValue.trim())), 1), 60)
-          : nextValue.trim()
+      ...next
     };
-    if (!Number.isFinite(nextPreferences.nights)) nextPreferences.nights = preferences.nights;
-    nextPreferences.departure = nextPreferences.departure.toUpperCase();
+    nextPreferences.departure = nextPreferences.departure.trim().toUpperCase();
+    nextPreferences.nights = normalizeNights(nextPreferences.nights);
     setPreferences(nextPreferences);
     writeTripPreferences(nextPreferences);
   }
+
+  function fieldClass() {
+    return "mt-1 w-full rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-sm font-semibold text-ink/78 outline-none transition focus:border-harbor/55";
+  }
+
+  const selectedNightValue = nightOptions.some((option) => option.value === preferences.nights)
+    ? String(preferences.nights)
+    : "custom";
+  const selectedInterest = !customInterestsOpen && interestOptions.includes(preferences.interests)
+    ? preferences.interests
+    : "custom";
 
   return (
     <section
       className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
       aria-label="Default trip preferences"
     >
-      {items.map((item) => (
-        <button
-          key={item.key}
-          type="button"
-          onClick={() => editPreference(item.key, item.title)}
-          className="flex items-center gap-3 rounded-md border border-ink/8 bg-white/50 px-3 py-2 text-left transition hover:border-harbor/35 hover:bg-white"
-          title={`Edit ${item.title}`}
+      <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+          <MapPin size={15} className="text-harbor/72" aria-hidden="true" />
+          Departure
+        </span>
+        <input
+          className={fieldClass()}
+          list="departure-airports"
+          value={preferences.departure}
+          onChange={(event) => updatePreferences({ departure: event.target.value })}
+        />
+        <datalist id="departure-airports">
+          {airportOptions.map((airport) => (
+            <option key={airport.code} value={airport.code}>
+              {airport.label}
+            </option>
+          ))}
+        </datalist>
+      </label>
+
+      <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+          <CalendarDays size={15} className="text-harbor/72" aria-hidden="true" />
+          Room nights
+        </span>
+        <select
+          className={fieldClass()}
+          value={customNightsOpen ? "custom" : selectedNightValue}
+          onChange={(event) => {
+            if (event.target.value === "custom") {
+              setCustomNightsOpen(true);
+              return;
+            }
+            setCustomNightsOpen(false);
+            updatePreferences({ nights: Number(event.target.value) });
+          }}
         >
-          <item.icon size={15} className="shrink-0 text-harbor/72" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              {item.label}
-            </span>
-            <span className="block truncate text-sm font-semibold text-ink/78">
-              {displayValue(item.key)}
-            </span>
+          {nightOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+          <option value="custom">Custom</option>
+        </select>
+        {customNightsOpen ? (
+          <input
+            className={`${fieldClass()} mt-2`}
+            type="number"
+            min={1}
+            max={60}
+            value={preferences.nights}
+            onChange={(event) => updatePreferences({ nights: Number(event.target.value) })}
+          />
+        ) : (
+          <span className="mt-1 block text-[11px] font-medium text-ink/42">
+            {tripLengthLabel(preferences.nights)}
           </span>
-        </button>
-      ))}
+        )}
+      </label>
+
+      <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+          <BedDouble size={15} className="text-harbor/72" aria-hidden="true" />
+          Lodging
+        </span>
+        <select
+          className={fieldClass()}
+          value={preferences.lodging}
+          onChange={(event) => updatePreferences({ lodging: event.target.value })}
+        >
+          {lodgingOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+          <Palette size={15} className="text-harbor/72" aria-hidden="true" />
+          Interests
+        </span>
+        <select
+          className={fieldClass()}
+          value={selectedInterest}
+          onChange={(event) => {
+            if (event.target.value === "custom") {
+              setCustomInterestsOpen(true);
+              return;
+            }
+            setCustomInterestsOpen(false);
+            updatePreferences({ interests: event.target.value });
+          }}
+        >
+          {interestOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+        {selectedInterest === "custom" ? (
+          <input
+            className={`${fieldClass()} mt-2`}
+            value={preferences.interests}
+            onChange={(event) => updatePreferences({ interests: event.target.value })}
+          />
+        ) : null}
+      </label>
     </section>
   );
 }

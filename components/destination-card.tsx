@@ -54,6 +54,24 @@ function mapsUrl(destination: Destination) {
   )}`;
 }
 
+function bookingUrl(sourceUrl: string | undefined, tripWindow: TripWindow, adults = 2) {
+  if (!sourceUrl) return undefined;
+
+  try {
+    const url = new URL(sourceUrl);
+    if (!url.hostname.includes("booking.com")) return sourceUrl;
+
+    url.searchParams.set("checkin", tripWindow.departDate);
+    url.searchParams.set("checkout", tripWindow.returnDate);
+    url.searchParams.set("group_adults", String(adults));
+    url.searchParams.set("no_rooms", "1");
+    url.searchParams.set("group_children", "0");
+    return url.toString();
+  } catch {
+    return sourceUrl;
+  }
+}
+
 function priceLabel(range: { min: number; max: number }, suffix: string) {
   return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()} ${suffix}`;
 }
@@ -84,6 +102,10 @@ function shortDate(value: string) {
     day: "numeric",
     year: "numeric"
   });
+}
+
+function travelDateLabel(tripWindow: TripWindow) {
+  return `${shortDate(tripWindow.departDate)}-${shortDate(tripWindow.returnDate)}`;
 }
 
 function landCostEstimate(destination: Destination, nights: number) {
@@ -205,6 +227,13 @@ function stayPrice(price: PriceRange, nights: number): PriceRange {
   };
 }
 
+function staySearchPrice(price: PriceRange, nights: number, tripWindow: TripWindow): PriceRange {
+  return {
+    ...stayPrice(price, nights),
+    sourceUrl: bookingUrl(price.sourceUrl, tripWindow)
+  };
+}
+
 function diningPrice(price: PriceRange, nights: number): PriceRange {
   return {
     ...price,
@@ -304,20 +333,23 @@ function CompactPriceLink({
   label,
   eyebrow,
   price,
-  onCheckFare
+  onCheckFare,
+  statusText
 }: {
   href?: string;
   label: string;
   eyebrow: string;
   price: PriceRange;
   onCheckFare?: () => void;
+  statusText?: string;
 }) {
   const sourceStatus =
-    eyebrow === "Airfare"
+    statusText ??
+    (eyebrow === "Airfare"
       ? `${price.sourceKind === "live" ? "Live" : price.sourceKind === "cached" ? "Cached" : "Mock"} ${
           price.sourceKind === "live" ? "checked" : "from"
         } ${shortDate(price.retrievedAt)}`
-      : "";
+      : "");
 
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
@@ -361,9 +393,11 @@ function CompactPriceLink({
 
 function UnavailablePriceLink({
   result,
+  tripWindow,
   onCheckFare
 }: {
   result: WatchRefreshResult;
+  tripWindow: TripWindow;
   onCheckFare?: () => void;
 }) {
   const wasChecked = Boolean(result.retrievedAt);
@@ -391,7 +425,8 @@ function UnavailablePriceLink({
           </span>
         )}
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          {wasChecked ? `Last checked ${shortDate(result.retrievedAt!)}` : "Not checked yet"}
+          Travel dates {travelDateLabel(tripWindow)} ·{" "}
+          {wasChecked ? `last checked ${shortDate(result.retrievedAt!)}` : "not checked yet"}
         </span>
         <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
       </span>
@@ -417,7 +452,7 @@ function UnavailablePriceLink({
   );
 }
 
-function CheckingPriceLink() {
+function CheckingPriceLink({ tripWindow }: { tripWindow: TripWindow }) {
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
@@ -429,7 +464,7 @@ function CheckingPriceLink() {
           Checking airfare...
         </span>
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Querying live provider
+          Travel dates {travelDateLabel(tripWindow)} · querying live provider
         </span>
       </span>
     </div>
@@ -458,9 +493,14 @@ export function DestinationCard({
   const airfare = watchedAirfare(destination, watch, fareSnapshot, preferences, tripWindow);
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
-  const rentalPrice = stayPrice(destination.lodging.rental, preferences.nights);
-  const hotel3StarPrice = stayPrice(destination.lodging.hotel3Star, preferences.nights);
+  const rentalPrice = staySearchPrice(destination.lodging.rental, preferences.nights, tripWindow);
+  const hotel3StarPrice = staySearchPrice(destination.lodging.hotel3Star, preferences.nights, tripWindow);
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
+  const airfareStatusText = airfare
+    ? `Travel dates ${travelDateLabel(tripWindow)} · ${
+        airfare.sourceKind === "live" ? "live checked" : airfare.sourceKind === "cached" ? "cached from" : "mock from"
+      } ${shortDate(airfare.retrievedAt)}`
+    : undefined;
   const bannerStyle = theme.photoUrl
     ? {
         backgroundImage: `${theme.photoOverlay}, url("${theme.photoUrl}")`,
@@ -575,8 +615,7 @@ export function DestinationCard({
           </p>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
-            Dates to price: {shortDate(tripWindow.departDate)}-{shortDate(tripWindow.returnDate)} ·{" "}
-            {tripWindow.reason}. Best months: {destination.bestMonths}
+            Best months: {destination.bestMonths}
           </p>
 
         </div>
@@ -603,9 +642,13 @@ export function DestinationCard({
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
                 {isCheckingFare ? (
-                  <CheckingPriceLink />
+                  <CheckingPriceLink tripWindow={tripWindow} />
                 ) : unavailableFare ? (
-                  <UnavailablePriceLink result={unavailableFare} onCheckFare={onCheckFare} />
+                  <UnavailablePriceLink
+                    result={unavailableFare}
+                    tripWindow={tripWindow}
+                    onCheckFare={onCheckFare}
+                  />
                 ) : airfare ? (
                   <CompactPriceLink
                     href={airfare.sourceUrl}
@@ -613,6 +656,7 @@ export function DestinationCard({
                     eyebrow="Airfare"
                     price={airfare}
                     onCheckFare={onCheckFare}
+                    statusText={airfareStatusText}
                   />
                 ) : null}
                 <CompactPriceLink

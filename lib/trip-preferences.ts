@@ -13,8 +13,8 @@ export const defaultTripPreferences: TripPreferences = {
 
 const recommendedDepartDates: Record<string, { date: string; reason: string }> = {
   "lisbon-coast": {
-    date: "2027-03-11",
-    reason: "early spring shoulder season inside March-May"
+    date: "2026-11-03",
+    reason: "early November shoulder season inside late September-November"
   },
   "bologna-emilia": {
     date: "2026-11-05",
