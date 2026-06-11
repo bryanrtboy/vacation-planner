@@ -14,11 +14,12 @@ import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
 const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
+const initialVisibleDestinations = 4;
+const destinationPageSize = 4;
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
   usage: UsageState;
-  staleAfterHours: number;
   results: WatchRefreshResult[];
 };
 
@@ -77,6 +78,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingSnapshots, setLodgingSnapshots] =
     useState<StoredFareSnapshots>(readStoredLodgingSnapshots);
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
+  const [visibleCount, setVisibleCount] = useState(initialVisibleDestinations);
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
@@ -86,6 +88,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
+  );
+  const visibleDestinations = useMemo(
+    () => destinations.slice(0, visibleCount),
+    [destinations, visibleCount]
+  );
+  const visibleDestinationSlugs = useMemo(
+    () => visibleDestinations.map((destination) => destination.slug),
+    [visibleDestinations]
   );
   const tripWindows = useMemo(
     () =>
@@ -117,13 +127,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const checkingCount = checkingSlugs.size;
   const checkingLodgingCount = checkingLodgingSlugs.size;
-  const checkedCount = destinationSlugs.filter(
+  const visibleCheckedCount = visibleDestinationSlugs.filter(
     (slug) => snapshots[snapshotKey(slug)]?.status === "checked"
   ).length;
-  const unavailableCount = destinationSlugs.filter((slug) => {
+  const visibleUnavailableCount = visibleDestinationSlugs.filter((slug) => {
     const snapshot = snapshots[snapshotKey(slug)];
     return snapshot && snapshot.status !== "checked";
   }).length;
+  const shownCount = Math.min(visibleCount, destinations.length);
+  const hasMoreDestinations = visibleCount < destinations.length;
 
   useEffect(() => {
     function syncPreferences() {
@@ -151,7 +163,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
         if (!response.ok) return;
         const data = (await response.json()) as SnapshotResponse;
-        if (cancelled || !data.results.length) return;
+        if (cancelled) return;
+        setUsage(data.usage);
+        setLodgingUsage(data.usage);
+        if (!data.results.length) return;
 
         const nextSnapshots = { ...readStoredSnapshots() };
         for (const result of data.results) {
@@ -160,7 +175,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
-        setUsage(data.usage);
       } catch {
         // Local snapshots remain the fallback when durable storage is unavailable.
       }
@@ -185,7 +199,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
         if (!response.ok) return;
         const data = (await response.json()) as SnapshotResponse;
-        if (cancelled || !data.results.length) return;
+        if (cancelled) return;
+        setLodgingUsage(data.usage);
+        setUsage(data.usage);
+        if (!data.results.length) return;
 
         const nextSnapshots = { ...readStoredLodgingSnapshots() };
         for (const result of data.results) {
@@ -196,7 +213,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         writeStoredLodgingSnapshots(nextSnapshots);
         setLodgingSnapshots(nextSnapshots);
-        setLodgingUsage(data.usage);
       } catch {
         // Static lodging estimates remain the fallback when durable storage is unavailable.
       }
@@ -235,6 +251,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
+        setLodgingUsage(data.usage);
         setStatusMessage(
           data.results.some((result) => result.status === "checked")
             ? "Airfare check complete."
@@ -282,6 +299,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const nextSnapshots = { ...readStoredLodgingSnapshots() };
 
         setLodgingUsage(data.usage);
+        setUsage(data.usage);
 
         for (const result of data.results) {
           const destination = destinations.find((item) => item.slug === result.destinationSlug);
@@ -317,20 +335,18 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             ? `Checking airfare for ${checkingCount} ${checkingCount === 1 ? "trip" : "trips"}...`
             : checkingLodgingCount
               ? `Checking lodging for ${checkingLodgingCount} ${
-                  checkingLodgingCount === 1 ? "trip" : "trips"
+              checkingLodgingCount === 1 ? "trip" : "trips"
                 }...`
             : statusMessage ||
-              `Airfare checks run only when you click Check now · ${checkedCount} live fare${
-                checkedCount === 1 ? "" : "s"
-              } · ${unavailableCount} unavailable`}
-          {usage ? ` · ${usage.remaining}/${usage.limit} checks left` : ""}
+              `Airfare checks run only when you click Check now · ${visibleCheckedCount} live fare${
+                visibleCheckedCount === 1 ? "" : "s"
+              } shown · ${visibleUnavailableCount} unavailable shown`}
           {lodgingStatusMessage ? ` · ${lodgingStatusMessage}` : ""}
-          {lodgingUsage ? ` · ${lodgingUsage.remaining}/${lodgingUsage.limit} lodging checks left` : ""}
         </span>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {destinations.map((destination) => (
+        {visibleDestinations.map((destination) => (
           <DestinationCard
             key={destination.slug}
             destination={destination}
@@ -343,11 +359,31 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             onCheckLodging={() =>
               void refreshLodgingSnapshots([destination.slug], { manual: true })
             }
+            usage={usage ?? lodgingUsage}
             preferences={preferences}
             tripWindow={tripWindows[destination.slug]}
           />
         ))}
       </div>
+
+      {hasMoreDestinations ? (
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">
+          <button
+            type="button"
+            onClick={() =>
+              setVisibleCount((current) =>
+                Math.min(current + destinationPageSize, destinations.length)
+              )
+            }
+            className="rounded-md border border-ink/15 bg-white px-4 py-2 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-ink/[0.03]"
+          >
+            Show more ideas
+          </button>
+          <span className="text-xs font-semibold text-ink/45">
+            Showing {shownCount} of {destinations.length}
+          </span>
+        </div>
+      ) : null}
     </>
   );
 }

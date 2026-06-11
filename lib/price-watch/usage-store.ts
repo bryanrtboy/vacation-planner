@@ -1,4 +1,4 @@
-import { WATCH_DAILY_CAP } from "@/lib/settings";
+import { SERPAPI_DAILY_CAP } from "@/lib/settings";
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import type { UsageState } from "@/lib/types";
 
@@ -32,8 +32,8 @@ function usageState(usage: MutableUsageState): UsageState {
   return {
     day: usage.day,
     used: usage.used,
-    limit: WATCH_DAILY_CAP,
-    remaining: Math.max(WATCH_DAILY_CAP - usage.used, 0)
+    limit: SERPAPI_DAILY_CAP,
+    remaining: Math.max(SERPAPI_DAILY_CAP - usage.used, 0)
   };
 }
 
@@ -60,7 +60,7 @@ export async function tryReserveChecks(count: number, service = defaultService) 
   const db = await getD1Database();
   if (!db) {
     const usage = currentUsage(service);
-    const remaining = Math.max(WATCH_DAILY_CAP - usage.used, 0);
+    const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
     const allowed = Math.min(count, remaining);
     usage.used += allowed;
 
@@ -91,14 +91,14 @@ export async function tryReserveChecks(count: number, service = defaultService) 
 
   if (!row) {
     const usage = currentUsage(service);
-    const remaining = Math.max(WATCH_DAILY_CAP - usage.used, 0);
+    const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
     const allowed = Math.min(count, remaining);
     usage.used += allowed;
     return { allowed, usage: fallbackUsageState(service) };
   }
 
   const usage = { day, used: row.used };
-  const remaining = Math.max(WATCH_DAILY_CAP - usage.used, 0);
+  const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
   const allowed = Math.min(count, remaining);
   const nextUsed = usage.used + allowed;
 

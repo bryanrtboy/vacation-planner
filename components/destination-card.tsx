@@ -1,11 +1,9 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   ChevronDown,
   ExternalLink,
-  Eye,
-  EyeOff,
   Info,
   MapPin,
   RefreshCw,
@@ -18,32 +16,9 @@ import type {
   PriceRange,
   TripPreferences,
   TripWindow,
-  WatchedSearch,
+  UsageState,
   WatchRefreshResult
 } from "@/lib/types";
-
-const storageKey = "artist-travel-finder:watches";
-
-function readWatches(): WatchedSearch[] {
-  if (typeof window === "undefined") return [];
-  const raw = window.localStorage.getItem(storageKey);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as WatchedSearch[];
-  } catch {
-    return [];
-  }
-}
-
-function writeWatches(watches: WatchedSearch[]) {
-  window.localStorage.setItem(storageKey, JSON.stringify(watches));
-  window.dispatchEvent(new CustomEvent("artist-travel-finder:watches-changed"));
-  void fetch("/api/watches", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ watches })
-  }).catch(() => undefined);
-}
 
 function scoreLabel(label: string) {
   return label.charAt(0).toUpperCase() + label.slice(1);
@@ -163,35 +138,11 @@ function resultAirfare(destination: Destination, result: WatchRefreshResult): Pr
   };
 }
 
-function watchedAirfare(
+function snapshotAirfare(
   destination: Destination,
-  watch?: WatchedSearch,
-  fareSnapshot?: WatchRefreshResult,
-  preferences?: TripPreferences,
-  tripWindow?: TripWindow
+  fareSnapshot?: WatchRefreshResult
 ): PriceRange | undefined {
   if (fareSnapshot?.status === "checked") return resultAirfare(destination, fareSnapshot);
-
-  const watchMatchesCurrentTrip =
-    watch?.origin === preferences?.departure &&
-    watch?.departDate === tripWindow?.departDate &&
-    watch?.returnDate === tripWindow?.returnDate;
-
-  if (watch?.lastRange && watchMatchesCurrentTrip) {
-    return {
-      ...destination.airfare,
-      min: watch.lastRange.min,
-      max: watch.lastRange.max,
-      label: priceLabel(watch.lastRange, "round trip"),
-      provider: watch.lastProvider ?? destination.airfare.provider,
-      sampledDates: watch.lastSampledDates ?? destination.airfare.sampledDates,
-      retrievedAt: watch.lastCheckedAt ?? destination.airfare.retrievedAt,
-      sourceUrl: watch.lastSourceUrl ?? destination.airfare.sourceUrl,
-      sourceDetail: watch.lastSourceDetail ?? destination.airfare.sourceDetail,
-      sourceKind: watch.lastSourceKind ?? destination.airfare.sourceKind
-    };
-  }
-
   return undefined;
 }
 
@@ -343,12 +294,46 @@ function SourceInfo({ price, label }: { price: PriceRange; label: string }) {
   );
 }
 
+function CheckButton({
+  label,
+  usage,
+  onClick
+}: {
+  label: string;
+  usage?: UsageState | null;
+  onClick?: () => void;
+}) {
+  if (!onClick) return null;
+
+  const capped = usage?.remaining === 0;
+
+  return (
+    <span className="inline-flex shrink-0 flex-col items-end gap-0.5">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={capped}
+        className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor disabled:cursor-not-allowed disabled:bg-ink/6 disabled:text-ink/30"
+      >
+        <RefreshCw size={12} aria-hidden="true" />
+        {label}
+      </button>
+      {usage ? (
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+          {usage.remaining}/{usage.limit} left today
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function CompactPriceLink({
   href,
   label,
   eyebrow,
   price,
   onCheckFare,
+  usage,
   statusText
 }: {
   href?: string;
@@ -356,6 +341,7 @@ function CompactPriceLink({
   eyebrow: string;
   price: PriceRange;
   onCheckFare?: () => void;
+  usage?: UsageState | null;
   statusText?: string;
 }) {
   const sourceStatus =
@@ -391,15 +377,8 @@ function CompactPriceLink({
           <span className="mt-0.5 block text-[11px] font-medium text-ink/42">{sourceStatus}</span>
         ) : null}
       </span>
-      {eyebrow === "Airfare" && onCheckFare ? (
-        <button
-          type="button"
-          onClick={onCheckFare}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor"
-        >
-          <RefreshCw size={12} aria-hidden="true" />
-          Check now
-        </button>
+      {eyebrow === "Airfare" ? (
+        <CheckButton label="Check now" usage={usage} onClick={onCheckFare} />
       ) : null}
       <SourceInfo price={price} label={eyebrow} />
     </div>
@@ -409,11 +388,13 @@ function CompactPriceLink({
 function UnavailablePriceLink({
   result,
   tripWindow,
-  onCheckFare
+  onCheckFare,
+  usage
 }: {
   result: WatchRefreshResult;
   tripWindow: TripWindow;
   onCheckFare?: () => void;
+  usage?: UsageState | null;
 }) {
   const wasChecked = Boolean(result.retrievedAt);
   const label = wasChecked ? "Airfare unavailable" : "Airfare not checked";
@@ -445,16 +426,7 @@ function UnavailablePriceLink({
         </span>
         <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
       </span>
-      {onCheckFare ? (
-        <button
-          type="button"
-          onClick={onCheckFare}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor"
-        >
-          <RefreshCw size={12} aria-hidden="true" />
-          Check now
-        </button>
-      ) : null}
+      <CheckButton label="Check now" usage={usage} onClick={onCheckFare} />
       <InfoButton label="Airfare unavailable detail">
         <span className="block font-semibold text-ink">{label}</span>
         <span className="mt-1 block">{result.message}</span>
@@ -491,13 +463,15 @@ function LodgingPriceLink({
   mode,
   tripWindow,
   nights,
-  onCheckLodging
+  onCheckLodging,
+  usage
 }: {
   result?: WatchRefreshResult;
   mode: LodgingMode;
   tripWindow: TripWindow;
   nights: number;
   onCheckLodging?: () => void;
+  usage?: UsageState | null;
 }) {
   const checkedAt = result?.retrievedAt;
   const wasChecked = Boolean(checkedAt);
@@ -537,16 +511,7 @@ function LodgingPriceLink({
           <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
         ) : null}
       </span>
-      {onCheckLodging ? (
-        <button
-          type="button"
-          onClick={onCheckLodging}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor"
-        >
-          <RefreshCw size={12} aria-hidden="true" />
-          Check lodging
-        </button>
-      ) : null}
+      <CheckButton label="Check lodging" usage={usage} onClick={onCheckLodging} />
       <InfoButton label={`${mode.label} lodging detail`}>
         <span className="block font-semibold text-ink">{mode.label}</span>
         <span className="mt-1 block">
@@ -590,6 +555,7 @@ export function DestinationCard({
   isCheckingLodging = false,
   onCheckFare,
   onCheckLodging,
+  usage,
   preferences,
   tripWindow
 }: {
@@ -601,14 +567,13 @@ export function DestinationCard({
   isCheckingLodging?: boolean;
   onCheckFare?: () => void;
   onCheckLodging?: () => void;
+  usage?: UsageState | null;
   preferences: TripPreferences;
   tripWindow: TripWindow;
 }) {
-  const [watched, setWatched] = useState(false);
-  const [watch, setWatch] = useState<WatchedSearch | undefined>();
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
-  const airfare = watchedAirfare(destination, watch, fareSnapshot, preferences, tripWindow);
+  const airfare = snapshotAirfare(destination, fareSnapshot);
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
   const rentalPrice = staySearchPrice(destination.lodging.rental, preferences.nights, tripWindow);
@@ -626,46 +591,6 @@ export function DestinationCard({
       }
     : undefined;
 
-  useEffect(() => {
-    function sync() {
-      const currentWatch = readWatches().find((item) => item.destinationSlug === destination.slug);
-      setWatch(currentWatch);
-      setWatched(Boolean(currentWatch));
-    }
-
-    sync();
-    window.addEventListener("artist-travel-finder:watches-changed", sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("artist-travel-finder:watches-changed", sync);
-      window.removeEventListener("storage", sync);
-    };
-  }, [destination.slug]);
-
-  function toggleWatch() {
-    const watches = readWatches();
-    if (watched) {
-      writeWatches(watches.filter((watch) => watch.destinationSlug !== destination.slug));
-      return;
-    }
-
-    writeWatches([
-      ...watches,
-      {
-        id: `${destination.slug}-${preferences.departure}-${tripWindow.departDate}`,
-        destinationSlug: destination.slug,
-        destinationName: destination.name,
-        route: `${preferences.departure} to ${destination.flightSearch.destination}`,
-        season: destination.bestMonths,
-        tripLength: preferences.nights >= 28 ? "1-month" : "7-nights",
-        origin: preferences.departure,
-        departDate: tripWindow.departDate,
-        returnDate: tripWindow.returnDate,
-        destinationAirports: destination.flightSearch.destinationAirports
-      }
-    ]);
-  }
-
   return (
     <article className={`overflow-visible rounded-md border-2 bg-white ${theme.cardClass}`}>
       <div
@@ -676,7 +601,7 @@ export function DestinationCard({
           className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/14 to-transparent" />
-        <div className="relative flex items-start justify-between gap-4 px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.72),_0_1px_1px_rgb(0_0_0_/_0.9)]">
+        <div className="relative px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.72),_0_1px_1px_rgb(0_0_0_/_0.9)]">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
               {destination.region} · {theme.moodLabel}
@@ -693,23 +618,6 @@ export function DestinationCard({
               </a>
             </h3>
           </div>
-          <button
-            type="button"
-            onClick={toggleWatch}
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-[0_1px_8px_rgb(0_0_0_/_0.22)] transition ${
-              watched
-                ? theme.watchActiveClass
-                : "border-white/30 bg-white/12 text-white hover:bg-white/22"
-            }`}
-            title={watched ? "Remove from price watch" : "Add to price watch"}
-          >
-            {watched ? (
-              <EyeOff size={16} aria-hidden="true" />
-            ) : (
-              <Eye size={16} aria-hidden="true" />
-            )}
-            <span>{watched ? "Watching" : "Watch"}</span>
-          </button>
         </div>
       </div>
 
@@ -766,6 +674,7 @@ export function DestinationCard({
                     result={unavailableFare}
                     tripWindow={tripWindow}
                     onCheckFare={onCheckFare}
+                    usage={usage}
                   />
                 ) : airfare ? (
                   <CompactPriceLink
@@ -774,6 +683,7 @@ export function DestinationCard({
                     eyebrow="Airfare"
                     price={airfare}
                     onCheckFare={onCheckFare}
+                    usage={usage}
                     statusText={airfareStatusText}
                   />
                 ) : null}
@@ -786,6 +696,7 @@ export function DestinationCard({
                     tripWindow={tripWindow}
                     nights={preferences.nights}
                     onCheckLodging={onCheckLodging}
+                    usage={usage}
                   />
                 )}
                 <CompactPriceLink

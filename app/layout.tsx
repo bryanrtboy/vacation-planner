@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Artist Travel Finder",
-  description: "Curated travel research with price-watch guardrails."
+  description: "Curated travel research with manual price snapshots."
 };
 
 export const viewport: Viewport = {

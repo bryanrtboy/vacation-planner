@@ -3,7 +3,6 @@ import { lodgingModeFromPreference } from "@/lib/lodging/modes";
 import { sampleSerpApiLodging } from "@/lib/lodging/providers/serpapi";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { destinations, getDestination } from "@/lib/seed-data";
-import { LODGING_REFRESH_STALE_HOURS } from "@/lib/settings";
 import {
   readPriceSnapshot,
   writePriceSnapshot
@@ -70,7 +69,7 @@ export async function POST(request: Request) {
   const cachedPairs = await Promise.all(
     contexts.map(async (context) => ({
       context,
-      result: await readPriceSnapshot(context.snapshotSearch, LODGING_REFRESH_STALE_HOURS)
+      result: await readPriceSnapshot(context.snapshotSearch)
     }))
   );
   const cachedResults = cachedPairs
@@ -80,7 +79,6 @@ export async function POST(request: Request) {
   if (!shouldRefresh) {
     return NextResponse.json({
       usage: await getUsageState(lodgingUsageService),
-      staleAfterHours: LODGING_REFRESH_STALE_HOURS,
       results: cachedResults
     });
   }
@@ -113,7 +111,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     usage: await getUsageState(lodgingUsageService),
-    staleAfterHours: LODGING_REFRESH_STALE_HOURS,
     results: [...checkedResults, ...cappedResults]
   });
 }

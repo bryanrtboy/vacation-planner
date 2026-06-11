@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { sampleWatchedFare } from "@/lib/flights/provider";
 import { destinations, getDestination } from "@/lib/seed-data";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
-import { WATCH_REFRESH_STALE_HOURS } from "@/lib/settings";
 import {
   readPriceSnapshot,
   writePriceSnapshot
@@ -60,7 +59,7 @@ export async function POST(request: Request) {
   const cachedPairs = await Promise.all(
     searches.map(async (search) => ({
       search,
-      result: await readPriceSnapshot(airfareSnapshotSearch(search), WATCH_REFRESH_STALE_HOURS)
+      result: await readPriceSnapshot(airfareSnapshotSearch(search))
     }))
   );
   const cachedResults = cachedPairs
@@ -70,7 +69,6 @@ export async function POST(request: Request) {
   if (!shouldRefresh) {
     return NextResponse.json({
       usage: await getUsageState(),
-      staleAfterHours: WATCH_REFRESH_STALE_HOURS,
       results: cachedResults
     });
   }
@@ -107,7 +105,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     usage: await getUsageState(),
-    staleAfterHours: WATCH_REFRESH_STALE_HOURS,
     results: [...checkedResults, ...cappedResults]
   });
 }
