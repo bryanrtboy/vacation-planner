@@ -30,9 +30,27 @@ const fallbackPhotoByRegion: Record<string, string> = {
 const defaultFallbackPhoto =
   "https://commons.wikimedia.org/wiki/Special:FilePath/Puente%20Don%20Luis%20I%2C%20Oporto%2C%20Portugal%2C%202012-05-09%2C%20DD%2013.JPG?width=800";
 
-function withPhotoFallback(destination: Destination): Destination {
-  if (destination.visualTheme.photoUrl) return destination;
+function cleanMoodLabel(value?: string) {
+  const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
+  if (!normalized || normalized === "ai suggested" || normalized === "suggested idea") return undefined;
+  return normalized.slice(0, 42);
+}
 
+function moodLabelFromDestination(destination: Destination) {
+  const explicit = cleanMoodLabel(destination.visualTheme.moodLabel);
+  if (explicit) return explicit;
+
+  const highlights = destination.highlights
+    .map((highlight) => highlight.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (highlights.length === 2) return `${highlights[0]} and ${highlights[1]}`.slice(0, 42);
+  if (highlights.length === 1) return highlights[0].slice(0, 42);
+
+  return (destination.tripType.split(/[,.]/)[0]?.trim().toLowerCase() || "slow travel").slice(0, 42);
+}
+
+function withPhotoFallback(destination: Destination): Destination {
   const seedPhoto = seedBySlug.get(destination.slug)?.visualTheme.photoUrl;
   const fallbackPhoto = seedPhoto ?? fallbackPhotoByRegion[destination.region] ?? defaultFallbackPhoto;
 
@@ -40,7 +58,8 @@ function withPhotoFallback(destination: Destination): Destination {
     ...destination,
     visualTheme: {
       ...destination.visualTheme,
-      photoUrl: fallbackPhoto,
+      photoUrl: destination.visualTheme.photoUrl || fallbackPhoto,
+      moodLabel: moodLabelFromDestination(destination),
       photoPosition: destination.visualTheme.photoPosition ?? "center"
     }
   };

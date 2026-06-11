@@ -189,6 +189,7 @@ export type DestinationSuggestion = {
   payload: {
     name: string;
     region: string;
+    moodLabel?: string;
     whyItFits: string;
     bestMonths: string;
     tradeoffs: string;

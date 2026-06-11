@@ -41,6 +41,26 @@ function compactHash(value: string) {
   return (hash >>> 0).toString(36);
 }
 
+function cleanMoodLabel(value?: string) {
+  const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
+  if (!normalized || normalized === "ai suggested" || normalized === "suggested idea") return undefined;
+  return normalized.slice(0, 42);
+}
+
+function moodLabelFromSuggestion(payload: DestinationSuggestion["payload"]) {
+  const explicit = cleanMoodLabel(payload.moodLabel);
+  if (explicit) return explicit;
+
+  const interests = payload.interests
+    .map((interest) => interest.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 3);
+  if (interests.length >= 2) return `${interests[0]} and ${interests[1]}`;
+  if (interests.length === 1) return interests[0];
+
+  return "slow travel";
+}
+
 function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
   if (!preferences) return defaultTripPreferences;
 
@@ -62,6 +82,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
   const airportTargets = suggestion.payload.airportTargets.length
     ? suggestion.payload.airportTargets
     : [suggestion.name];
+  const moodLabel = moodLabelFromSuggestion(suggestion.payload);
 
   return {
     slug,
@@ -88,7 +109,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       buttonClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
       watchActiveClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
       textClass: "text-[#336b73]",
-      moodLabel: "Suggested idea"
+      moodLabel
     },
     flightSearch: {
       origin: defaultTripPreferences.departure,

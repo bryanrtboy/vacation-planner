@@ -129,55 +129,70 @@ function travelDateLabel(tripWindow: TripWindow) {
   return `${shortDate(tripWindow.departDate)}-${shortDate(tripWindow.returnDate)}`;
 }
 
-function landCostEstimate(destination: Destination, nights: number) {
-  if (
-    destination.lodging.rental.max <= 0 ||
-    destination.dining.max <= 0
-  ) {
-    return undefined;
-  }
-
-  const lodgingMidpoint =
-    ((destination.lodging.rental.min + destination.lodging.rental.max) / 2) * nights;
-  const diningMidpoint = ((destination.dining.min + destination.dining.max) / 2) * nights;
-  return Math.round((lodgingMidpoint + diningMidpoint) / 50) * 50;
+function roundedCost(value: number) {
+  return `$${(Math.round(value / 50) * 50).toLocaleString()}`;
 }
 
-function tripCostEstimate(destination: Destination, airfare: PriceRange, nights: number) {
-  const landCost = landCostEstimate(destination, nights);
-  if (typeof landCost !== "number") return undefined;
+function rangeMidpoint(range: { min: number; max: number }) {
+  if (range.max <= 0) return undefined;
+  return (range.min + range.max) / 2;
+}
 
-  const airfareMidpoint = (airfare.min + airfare.max) / 2;
-  const roundedTotal =
-    Math.round((airfareMidpoint + landCost) / 50) * 50;
+function lodgingCostEstimate(
+  destination: Destination,
+  nights: number,
+  lodgingSnapshot?: WatchRefreshResult
+) {
+  if (lodgingSnapshot?.status === "checked" && lodgingSnapshot.currentRange) {
+    return rangeMidpoint(lodgingSnapshot.currentRange);
+  }
 
-  return `$${roundedTotal.toLocaleString()}`;
+  const nightlyMidpoint = rangeMidpoint(destination.lodging.rental);
+  return typeof nightlyMidpoint === "number" ? nightlyMidpoint * nights : undefined;
+}
+
+function diningCostEstimate(destination: Destination, nights: number) {
+  const dailyMidpoint = rangeMidpoint(destination.dining);
+  return typeof dailyMidpoint === "number" ? dailyMidpoint * nights : undefined;
+}
+
+function missingCostPhrase(missing: string[]) {
+  if (missing.length === 1) return missing[0];
+  if (missing.length === 2) return `${missing[0]} and ${missing[1]}`;
+  return `${missing.slice(0, -1).join(", ")}, and ${missing.at(-1)}`;
 }
 
 function tripCostSummary(
   destination: Destination,
   airfare: PriceRange | undefined,
   nights: number,
-  flightCount: number,
+  lodgingSnapshot?: WatchRefreshResult,
   unavailable?: WatchRefreshResult,
-  isCheckingFare?: boolean
+  isCheckingFare?: boolean,
+  isCheckingLodging?: boolean
 ) {
-  const landCost = landCostEstimate(destination, nights);
+  const airfareCost = airfare ? rangeMidpoint(airfare) : undefined;
+  const lodgingCost = lodgingCostEstimate(destination, nights, lodgingSnapshot);
+  const diningCost = diningCostEstimate(destination, nights);
+  const knownCosts = [airfareCost, lodgingCost, diningCost].filter(
+    (value): value is number => typeof value === "number"
+  );
+  const total = knownCosts.reduce((sum, value) => sum + value, 0);
+  const missing = [
+    !airfare || unavailable ? "airfare" : undefined,
+    typeof lodgingCost !== "number" ? "lodging" : undefined,
+    typeof diningCost !== "number" ? "dining" : undefined
+  ].filter((value): value is string => Boolean(value));
+  const checking = isCheckingFare || isCheckingLodging;
 
-  if (isCheckingFare) {
-    return typeof landCost === "number"
-      ? `Cost around $${landCost.toLocaleString()} before airfare; checking airfare.`
-      : "Cost not checked yet; checking airfare.";
+  if (!knownCosts.length) {
+    return checking ? "Cost not checked yet; checking prices." : "Cost not checked yet.";
   }
 
-  if (!airfare || unavailable) {
-    return typeof landCost === "number"
-      ? `Cost around $${landCost.toLocaleString()} before airfare.`
-      : "Cost not checked yet.";
-  }
+  const suffix = missing.length ? ` before ${missingCostPhrase(missing)}` : "";
+  const checkingSuffix = checking ? "; checking prices" : "";
 
-  const total = tripCostEstimate(destination, airfare, nights);
-  return total ? `Cost around ${total}.` : "Cost not checked yet.";
+  return `Cost around ${roundedCost(total)}${suffix}${checkingSuffix}.`;
 }
 
 function rangeLabel(range: { min: number; max: number }) {
@@ -747,9 +762,10 @@ export function DestinationCard({
                 destination,
                 airfare,
                 preferences.nights,
-                preferences.flightCount,
+                lodgingSnapshot,
                 unavailableFare,
-                isCheckingFare
+                isCheckingFare,
+                isCheckingLodging
               )}
             </span>
           </p>

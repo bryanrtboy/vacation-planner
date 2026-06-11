@@ -54,6 +54,7 @@ function parseSuggestions(text: string): SuggestedDestinationPayload[] {
     .map((suggestion) => ({
       name: String(suggestion.name),
       region: String(suggestion.region),
+      moodLabel: suggestion.moodLabel ? String(suggestion.moodLabel) : undefined,
       whyItFits: String(suggestion.whyItFits),
       bestMonths: String(suggestion.bestMonths ?? "Shoulder season"),
       tradeoffs: String(suggestion.tradeoffs ?? "Needs manual review."),
@@ -93,6 +94,7 @@ Hard rules:
     input.preferences.nights
   } nights.
 - Avoid duplicating existing destinations by name.
+- Include a concise "moodLabel" of 2 to 5 lowercase words, like "coastal tiles", "porticoes and trains", or "gardens and coast".
 - Include a short "photoSearch" phrase that can later find a real public-domain or Wikimedia-style card image.
 
 Request type: ${input.promptKind}.
@@ -108,6 +110,7 @@ JSON shape:
     {
       "name": "City or region name",
       "region": "Country or broad region",
+      "moodLabel": "short visual/trip mood",
       "whyItFits": "One sentence explaining the fit.",
       "bestMonths": "Best planning months",
       "tradeoffs": "One practical tradeoff to review.",
