@@ -98,3 +98,33 @@ export async function listDestinationCandidates(): Promise<Destination[]> {
     return seedDestinations.map(withPhotoFallback);
   }
 }
+
+export async function writeDestinationCandidate(destination: Destination) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const timestamp = nowIso();
+  const destinationWithPhoto = withPhotoFallback(destination);
+  const result = await db
+    .prepare(
+      `INSERT INTO destination_candidates (
+        slug, name, region, payload_json, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+      ON CONFLICT(slug) DO UPDATE SET
+        name = excluded.name,
+        region = excluded.region,
+        payload_json = excluded.payload_json,
+        updated_at = excluded.updated_at`
+    )
+    .bind(
+      destinationWithPhoto.slug,
+      destinationWithPhoto.name,
+      destinationWithPhoto.region,
+      JSON.stringify(destinationWithPhoto),
+      timestamp
+    )
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}

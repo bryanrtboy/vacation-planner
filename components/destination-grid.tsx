@@ -31,6 +31,7 @@ type SuggestionResponse = {
   usage: UsageState;
   suggestions: DestinationSuggestion[];
   message?: string;
+  storageReady?: boolean;
 };
 
 const interestSynonyms: Record<string, string[]> = {
@@ -175,6 +176,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
   const [suggestingDestinations, setSuggestingDestinations] = useState(false);
+  const [reviewingSuggestionId, setReviewingSuggestionId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
@@ -284,6 +286,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (cancelled) return;
         setAiUsage(data.usage);
         setSuggestions(data.suggestions);
+        if (data.message) setSuggestionStatusMessage(data.message);
       } catch {
         // Suggestions are optional and remain manual-only.
       }
@@ -502,6 +505,33 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
   }, [preferences, regionFilter]);
 
+  const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
+    setReviewingSuggestionId(id);
+    setSuggestionStatusMessage(action === "accept" ? "Adding suggestion to ideas..." : "Hiding suggestion...");
+
+    try {
+      const response = await fetch("/api/destinations/suggestions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action })
+      });
+      const data = (await response.json()) as SuggestionResponse;
+      setAiUsage(data.usage);
+      setSuggestions(data.suggestions);
+      setSuggestionStatusMessage(
+        data.message ?? (response.ok ? "Suggestion updated." : "Unable to update suggestion.")
+      );
+
+      if (response.ok && action === "accept") {
+        window.location.reload();
+      }
+    } catch {
+      setSuggestionStatusMessage("Unable to connect to the destination suggestion API.");
+    } finally {
+      setReviewingSuggestionId(null);
+    }
+  }, []);
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3 text-xs text-ink/58">
@@ -617,6 +647,24 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                   <p className="mt-1 text-xs leading-5 text-ink/45">
                     Watch: {suggestion.payload.tradeoffs}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void reviewSuggestion(suggestion.id, "accept")}
+                      disabled={reviewingSuggestionId === suggestion.id}
+                      className="rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Add to ideas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void reviewSuggestion(suggestion.id, "hide")}
+                      disabled={reviewingSuggestionId === suggestion.id}
+                      className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/58 transition hover:border-ink/25 hover:text-ink disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Hide
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

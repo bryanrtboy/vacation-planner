@@ -30,6 +30,11 @@ export type DestinationSuggestionInput = Omit<
   reviewedAt?: string;
 };
 
+export type DestinationSuggestionStorageState = {
+  ready: boolean;
+  message?: string;
+};
+
 function rowToSuggestion(row: DestinationSuggestionRow): DestinationSuggestion | null {
   try {
     return {
@@ -75,13 +80,51 @@ export async function listDestinationSuggestions(
     .filter((suggestion): suggestion is DestinationSuggestion => Boolean(suggestion));
 }
 
+export async function destinationSuggestionStorageState(): Promise<DestinationSuggestionStorageState> {
+  const db = await getD1Database();
+  if (!db) {
+    return {
+      ready: false,
+      message: "D1 is not available, so destination suggestions cannot be saved."
+    };
+  }
+
+  const row = await db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'destination_suggestions'")
+    .first<{ name: string }>()
+    .catch(() => null);
+
+  if (!row) {
+    return {
+      ready: false,
+      message:
+        "The destination_suggestions table is missing. Run npm run d1:migrate:remote before using Gemini suggestions."
+    };
+  }
+
+  return { ready: true };
+}
+
+export async function getDestinationSuggestion(id: string): Promise<DestinationSuggestion | null> {
+  const db = await getD1Database();
+  if (!db) return null;
+
+  const row = await db
+    .prepare("SELECT * FROM destination_suggestions WHERE id = ?1")
+    .bind(id)
+    .first<DestinationSuggestionRow>()
+    .catch(() => null);
+
+  return row ? rowToSuggestion(row) : null;
+}
+
 export async function writeDestinationSuggestions(suggestions: DestinationSuggestionInput[]) {
   const db = await getD1Database();
-  if (!db || !suggestions.length) return;
+  if (!db || !suggestions.length) return false;
 
   const timestamp = nowIso();
 
-  await db
+  const result = await db
     .batch(
       suggestions.map((suggestion) =>
         db
@@ -128,7 +171,9 @@ export async function writeDestinationSuggestions(suggestions: DestinationSugges
           )
       )
     )
-    .catch(() => undefined);
+    .catch(() => null);
+
+  return Boolean(result);
 }
 
 export async function updateDestinationSuggestionStatus(
@@ -136,11 +181,11 @@ export async function updateDestinationSuggestionStatus(
   status: DestinationSuggestionStatus
 ) {
   const db = await getD1Database();
-  if (!db) return;
+  if (!db) return false;
 
   const timestamp = nowIso();
 
-  await db
+  const result = await db
     .prepare(
       `UPDATE destination_suggestions
        SET status = ?1, updated_at = ?2, reviewed_at = ?2
@@ -148,5 +193,7 @@ export async function updateDestinationSuggestionStatus(
     )
     .bind(status, timestamp, id)
     .run()
-    .catch(() => undefined);
+    .catch(() => null);
+
+  return Boolean(result);
 }

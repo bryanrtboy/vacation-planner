@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { suggestDestinationsWithGemini } from "@/lib/ai/gemini";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
-import { listDestinationCandidates } from "@/lib/storage/destination-store";
+import { listDestinationCandidates, writeDestinationCandidate } from "@/lib/storage/destination-store";
 import {
+  destinationSuggestionStorageState,
+  getDestinationSuggestion,
   listDestinationSuggestions,
+  updateDestinationSuggestionStatus,
   writeDestinationSuggestions
 } from "@/lib/storage/destination-suggestion-store";
 import { defaultTripPreferences } from "@/lib/trip-preferences";
 import type {
+  Destination,
   DestinationSuggestion,
   DestinationSuggestionPromptKind,
   TripPreferences
@@ -16,6 +20,8 @@ import type {
 export const runtime = "nodejs";
 
 const aiUsageService = "ai";
+const fallbackPhotoUrl =
+  "https://commons.wikimedia.org/wiki/Special:FilePath/Puente%20Don%20Luis%20I%2C%20Oporto%2C%20Portugal%2C%202012-05-09%2C%20DD%2013.JPG?width=800";
 
 function slugify(value: string) {
   return value
@@ -51,14 +57,150 @@ function normalizePreferences(preferences?: Partial<TripPreferences>): TripPrefe
   };
 }
 
+function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination {
+  const slug = suggestion.destinationSlug ?? slugify(suggestion.name);
+  const airportTargets = suggestion.payload.airportTargets.length
+    ? suggestion.payload.airportTargets
+    : [suggestion.name];
+
+  return {
+    slug,
+    name: suggestion.name,
+    region: suggestion.region ?? suggestion.payload.region,
+    mapQuery: suggestion.name,
+    tripType: suggestion.payload.lodgingAngle,
+    fitSummary: suggestion.payload.whyItFits,
+    caveat: suggestion.payload.tradeoffs,
+    bestMonths: suggestion.payload.bestMonths,
+    avoid: suggestion.payload.tradeoffs,
+    visualTheme: {
+      accentName: "suggested idea",
+      bannerClass: "bg-[linear-gradient(135deg,#12363c_0%,#336b73_52%,#8bb8b4_100%)]",
+      photoUrl: fallbackPhotoUrl,
+      photoPosition: "center",
+      photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
+      heroOverlayClass: "from-[#12363c]/96 via-[#336b73]/74 to-[#336b73]/8",
+      cardClass: "border-[#336b73]/75 shadow-[0_10px_30px_rgba(30,70,80,0.16)]",
+      panelClass: "bg-[#eef8f7] border-[#abd3d0]",
+      summaryClass: "bg-[#eef8f7] border-[#abd3d0]",
+      highlightClass: "border-[#12363c] bg-[#336b73] text-white",
+      highlightInfoClass: "text-[#336b73]",
+      buttonClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
+      watchActiveClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
+      textClass: "text-[#336b73]",
+      moodLabel: "AI suggested"
+    },
+    flightSearch: {
+      origin: defaultTripPreferences.departure,
+      destination: suggestion.name,
+      destinationAirports: airportTargets,
+      departDate: "2026-10-15",
+      returnDate: "2026-10-22"
+    },
+    transport: "Car useful",
+    transportNote: "AI-suggested destination; review local transport before relying on this.",
+    monthlyPotential: "Selective",
+    sharedRentalPotential: "Possible",
+    fit: {
+      art: suggestion.payload.interests.includes("art") ? 8 : 6,
+      gardens: suggestion.payload.interests.includes("gardens") ? 8 : 6,
+      food: suggestion.payload.interests.includes("food") ? 8 : 6,
+      landscape:
+        suggestion.payload.interests.includes("landscape") ||
+        suggestion.payload.interests.includes("coast")
+          ? 8
+          : 6
+    },
+    airfare: {
+      min: 0,
+      max: 0,
+      currency: "USD",
+      label: "Airfare not checked",
+      provider: "Gemini suggestion",
+      sampledDates: "Not checked",
+      retrievedAt: new Date().toISOString(),
+      sourceDetail: "AI-suggested destination. Use Check now for live airfare.",
+      sourceKind: "unavailable"
+    },
+    lodging: {
+      hotel3Star: {
+        min: 0,
+        max: 0,
+        currency: "USD",
+        label: "Hotel baseline not checked",
+        provider: "Gemini suggestion",
+        sampledDates: "Not checked",
+        retrievedAt: new Date().toISOString(),
+        sourceDetail: "AI-suggested destination. Use Check lodging for live lodging.",
+        sourceKind: "unavailable"
+      },
+      rental: {
+        min: 0,
+        max: 0,
+        currency: "USD",
+        label: "Rental not checked",
+        provider: "Gemini suggestion",
+        sampledDates: "Not checked",
+        retrievedAt: new Date().toISOString(),
+        sourceUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(
+          suggestion.name
+        )}`,
+        sourceDetail: "AI-suggested destination. Use Check lodging for live lodging.",
+        sourceKind: "unavailable"
+      }
+    },
+    dining: {
+      min: 0,
+      max: 0,
+      currency: "USD",
+      label: "Dining not estimated",
+      provider: "Gemini suggestion",
+      sampledDates: "Not checked",
+      retrievedAt: new Date().toISOString(),
+      sourceKind: "unavailable"
+    },
+    highlights: suggestion.payload.interests,
+    curatedFinds: suggestion.payload.starterLinks?.map((link) => ({
+      label: link.label,
+      note: "AI-suggested starter research link.",
+      url: link.url,
+      kind: link.kind === "guide" || link.kind === "transport" ? "day-trip" : link.kind
+    })),
+    retreatNote: suggestion.payload.photoSearch,
+    links:
+      suggestion.payload.starterLinks?.map((link) => ({
+        label: link.label,
+        url: link.url,
+        kind: link.kind === "food" ? "guide" : link.kind
+      })) ?? []
+  };
+}
+
 export async function GET() {
+  const storageState = await destinationSuggestionStorageState();
+
   return NextResponse.json({
+    storageReady: storageState.ready,
+    message: storageState.message,
     usage: await getUsageState(aiUsageService),
-    suggestions: await listDestinationSuggestions("draft")
+    suggestions: storageState.ready ? await listDestinationSuggestions("draft") : []
   });
 }
 
 export async function POST(request: Request) {
+  const storageState = await destinationSuggestionStorageState();
+  if (!storageState.ready) {
+    return NextResponse.json(
+      {
+        storageReady: false,
+        usage: await getUsageState(aiUsageService),
+        suggestions: [],
+        message: storageState.message
+      },
+      { status: 503 }
+    );
+  }
+
   const body = (await request.json().catch(() => null)) as {
     promptKind?: DestinationSuggestionPromptKind;
     region?: string;
@@ -90,6 +232,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         usage: reservation.usage,
+        storageReady: true,
         suggestions: await listDestinationSuggestions("draft"),
         message: "Daily AI suggestion cap reached. Existing drafts are still shown."
       },
@@ -139,23 +282,86 @@ export async function POST(request: Request) {
       };
     });
 
-    await writeDestinationSuggestions(suggestions);
+    const saved = await writeDestinationSuggestions(suggestions);
 
     return NextResponse.json({
       usage: await getUsageState(aiUsageService),
-      suggestions: await listDestinationSuggestions("draft"),
-      message: `Saved ${suggestions.length} draft destination suggestion${
-        suggestions.length === 1 ? "" : "s"
-      }.`
+      storageReady: true,
+      suggestions: saved ? await listDestinationSuggestions("draft") : suggestions,
+      message: saved
+        ? `Saved ${suggestions.length} draft destination suggestion${
+            suggestions.length === 1 ? "" : "s"
+          }.`
+        : "Gemini returned suggestions, but D1 did not save them. Check the D1 migration and logs."
     });
   } catch (error) {
     return NextResponse.json(
       {
         usage: await getUsageState(aiUsageService),
+        storageReady: true,
         suggestions: await listDestinationSuggestions("draft"),
         message: error instanceof Error ? error.message : "Unable to generate suggestions."
       },
       { status: 502 }
     );
   }
+}
+
+export async function PATCH(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    id?: string;
+    action?: "accept" | "hide";
+  } | null;
+
+  if (!body?.id || !body.action) {
+    return NextResponse.json(
+      {
+        usage: await getUsageState(aiUsageService),
+        suggestions: await listDestinationSuggestions("draft"),
+        message: "Suggestion id and action are required."
+      },
+      { status: 400 }
+    );
+  }
+
+  if (body.action === "hide") {
+    await updateDestinationSuggestionStatus(body.id, "hidden");
+    return NextResponse.json({
+      usage: await getUsageState(aiUsageService),
+      suggestions: await listDestinationSuggestions("draft"),
+      message: "Suggestion hidden."
+    });
+  }
+
+  const suggestion = await getDestinationSuggestion(body.id);
+  if (!suggestion) {
+    return NextResponse.json(
+      {
+        usage: await getUsageState(aiUsageService),
+        suggestions: await listDestinationSuggestions("draft"),
+        message: "Suggestion was not found in D1."
+      },
+      { status: 404 }
+    );
+  }
+
+  const saved = await writeDestinationCandidate(candidateFromSuggestion(suggestion));
+  if (!saved) {
+    return NextResponse.json(
+      {
+        usage: await getUsageState(aiUsageService),
+        suggestions: await listDestinationSuggestions("draft"),
+        message: "Unable to add the suggestion to destination ideas."
+      },
+      { status: 502 }
+    );
+  }
+
+  await updateDestinationSuggestionStatus(body.id, "accepted");
+
+  return NextResponse.json({
+    usage: await getUsageState(aiUsageService),
+    suggestions: await listDestinationSuggestions("draft"),
+    message: "Suggestion added to destination ideas."
+  });
 }
