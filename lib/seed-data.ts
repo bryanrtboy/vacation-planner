@@ -1,11 +1,7 @@
 import type { Destination } from "@/lib/types";
+import { googleFlightsSearchUrl } from "@/lib/flights/links";
 
 const retrievedAt = "2026-06-10";
-
-function googleFlightsSearchUrl(search: Destination["flightSearch"]) {
-  const query = `${search.origin} to ${search.destination} ${search.departDate} ${search.returnDate} round trip`;
-  return `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}`;
-}
 
 function withFlightLinks(destination: Destination): Destination {
   const sourceUrl = googleFlightsSearchUrl(destination.flightSearch);
@@ -50,8 +46,8 @@ const seededDestinations: Destination[] = [
       origin: "DEN",
       destination: "Lisbon",
       destinationAirports: ["LIS"],
-      departDate: "2026-04-15",
-      returnDate: "2026-04-22"
+      departDate: "2027-04-14",
+      returnDate: "2027-04-21"
     },
     fitSummary:
       "A strong first pass for ceramics, tiles, contemporary galleries, gardens, ocean light, and train-friendly wandering without feeling like a checklist trip.",
@@ -71,7 +67,7 @@ const seededDestinations: Destination[] = [
       currency: "USD",
       label: "$780-$1,250 round trip",
       provider: "Mock flight sampler",
-      sampledDates: "Apr 15-22, Apr 22-29, May 6-13",
+      sampledDates: "Apr 14-21, Apr 21-28, May 5-12",
       retrievedAt,
       sourceDetail:
         "Mock airfare range based on sampled spring DEN-LIS research windows. Google Flights link opens a best-effort research query with route and dates.",

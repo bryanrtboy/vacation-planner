@@ -76,6 +76,7 @@ APP_SESSION_SECRET=<long-random-secret>
 WATCH_DAILY_CAP=25
 WATCH_REFRESH_STALE_HOURS=24
 WATCH_MAX_DESTINATIONS=20
+SERPAPI_API_KEY=<optional-live-google-flights-api-key>
 ```
 
 Keep `APP_PASSWORD` and `APP_SESSION_SECRET` in Cloudflare environment variables/secrets, not in the repository.
@@ -110,7 +111,9 @@ WATCH_MAX_DESTINATIONS=20
 
 ## Mock mode
 
-The current price sampler is mock-only. Mock data is labeled in the interface and should not be used as real travel pricing.
+The price sampler uses mock data unless `SERPAPI_API_KEY` is configured. Mock data is labeled in the interface and should not be used as real travel pricing.
+
+When a SerpApi key is present, watched airfare refreshes call SerpApi Google Flights for the seeded route and dates, normalize returned flight prices into a min/max USD range, and gracefully return unavailable/error states instead of inventing prices when no live fares are returned.
 
 Destination summaries, caveats, highlights, and transport notes are also hand-curated seed data in v1. The app does not call OpenAI, Gemini, ChatGPT, or any other AI provider yet.
 
@@ -134,7 +137,7 @@ OpenAI is the preferred future AI provider, but only after the Cloudflare passwo
 
 Recommended next integrations:
 
-- Amadeus or another flight API for live DEN airfare samples
+- SerpApi Google Flights for live DEN airfare samples
 - Hotel baseline provider for 3-star and occasional 4-star samples
 - Compliant rental APIs or public search links for rentals
 - D1 or KV persistence for multi-device watch state and durable daily usage caps on Cloudflare

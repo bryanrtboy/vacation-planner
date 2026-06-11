@@ -100,6 +100,11 @@ export type WatchedSearch = {
     min: number;
     max: number;
   };
+  lastProvider?: string;
+  lastSampledDates?: string;
+  lastSourceUrl?: string;
+  lastSourceDetail?: string;
+  lastSourceKind?: PriceSourceKind;
 };
 
 export type WatchRefreshResult = {
@@ -108,6 +113,7 @@ export type WatchRefreshResult = {
   destinationName: string;
   status: "checked" | "skipped" | "capped" | "error";
   message: string;
+  provider?: string;
   previousRange?: {
     min: number;
     max: number;
@@ -118,6 +124,8 @@ export type WatchRefreshResult = {
   };
   sampledDates?: string;
   retrievedAt?: string;
+  sourceUrl?: string;
+  sourceDetail?: string;
   sourceKind: PriceSourceKind;
 };
 

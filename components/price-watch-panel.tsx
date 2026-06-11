@@ -89,7 +89,12 @@ export function PriceWatchPanel() {
       return {
         ...watch,
         lastCheckedAt: result.retrievedAt,
-        lastRange: result.currentRange
+        lastRange: result.currentRange,
+        lastProvider: result.provider,
+        lastSampledDates: result.sampledDates,
+        lastSourceUrl: result.sourceUrl,
+        lastSourceDetail: result.sourceDetail,
+        lastSourceKind: result.sourceKind
       };
     });
 

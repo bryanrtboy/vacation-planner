@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sampleWatchedFare } from "@/lib/price-watch/mock-flight-provider";
+import { sampleWatchedFare } from "@/lib/flights/provider";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { WATCH_MAX_DESTINATIONS, WATCH_REFRESH_STALE_HOURS } from "@/lib/settings";
 import type { WatchedSearch, WatchRefreshResult } from "@/lib/types";

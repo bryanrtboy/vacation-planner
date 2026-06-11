@@ -39,14 +39,36 @@ function mapsUrl(destination: Destination) {
   )}`;
 }
 
-function tripCostEstimate(destination: Destination) {
+function priceLabel(range: { min: number; max: number }, suffix: string) {
+  return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()} ${suffix}`;
+}
+
+function tripCostEstimate(destination: Destination, airfare: PriceRange) {
   const nights = 7;
-  const airfareMidpoint = (destination.airfare.min + destination.airfare.max) / 2;
+  const airfareMidpoint = (airfare.min + airfare.max) / 2;
   const lodgingMidpoint =
     ((destination.lodging.rental.min + destination.lodging.rental.max) / 2) * nights;
-  const roundedTotal = Math.round((airfareMidpoint + lodgingMidpoint) / 100) * 100;
+  const diningMidpoint = ((destination.dining.min + destination.dining.max) / 2) * nights;
+  const roundedTotal = Math.round((airfareMidpoint + lodgingMidpoint + diningMidpoint) / 50) * 50;
 
   return `$${roundedTotal.toLocaleString()}`;
+}
+
+function watchedAirfare(destination: Destination, watch?: WatchedSearch): PriceRange {
+  if (!watch?.lastRange) return destination.airfare;
+
+  return {
+    ...destination.airfare,
+    min: watch.lastRange.min,
+    max: watch.lastRange.max,
+    label: priceLabel(watch.lastRange, "round trip"),
+    provider: watch.lastProvider ?? destination.airfare.provider,
+    sampledDates: watch.lastSampledDates ?? destination.airfare.sampledDates,
+    retrievedAt: watch.lastCheckedAt ?? destination.airfare.retrievedAt,
+    sourceUrl: watch.lastSourceUrl ?? destination.airfare.sourceUrl,
+    sourceDetail: watch.lastSourceDetail ?? destination.airfare.sourceDetail,
+    sourceKind: watch.lastSourceKind ?? destination.airfare.sourceKind
+  };
 }
 
 function linkTone() {
@@ -174,8 +196,10 @@ function CompactPriceLink({
 
 export function DestinationCard({ destination }: { destination: Destination }) {
   const [watched, setWatched] = useState(false);
+  const [watch, setWatch] = useState<WatchedSearch | undefined>();
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
+  const airfare = watchedAirfare(destination, watch);
   const bannerStyle = theme.photoUrl
     ? {
         backgroundImage: `${theme.photoOverlay}, url("${theme.photoUrl}")`,
@@ -185,7 +209,9 @@ export function DestinationCard({ destination }: { destination: Destination }) {
 
   useEffect(() => {
     function sync() {
-      setWatched(readWatches().some((watch) => watch.destinationSlug === destination.slug));
+      const currentWatch = readWatches().find((item) => item.destinationSlug === destination.slug);
+      setWatch(currentWatch);
+      setWatched(Boolean(currentWatch));
     }
 
     sync();
@@ -276,7 +302,7 @@ export function DestinationCard({ destination }: { destination: Destination }) {
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
             {destination.fitSummary}{" "}
-            <span className="font-semibold text-ink">Cost around {tripCostEstimate(destination)}.</span>
+            <span className="font-semibold text-ink">Cost around {tripCostEstimate(destination, airfare)}.</span>
           </p>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
@@ -307,10 +333,10 @@ export function DestinationCard({ destination }: { destination: Destination }) {
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
                 <CompactPriceLink
-                  href={destination.airfare.sourceUrl}
-                  label={destination.airfare.label}
+                  href={airfare.sourceUrl}
+                  label={airfare.label}
                   eyebrow="Airfare"
-                  price={destination.airfare}
+                  price={airfare}
                 />
                 <CompactPriceLink
                   href={destination.lodging.rental.sourceUrl}
@@ -323,6 +349,12 @@ export function DestinationCard({ destination }: { destination: Destination }) {
                   label={destination.lodging.hotel3Star.label}
                   eyebrow="3-star baseline"
                   price={destination.lodging.hotel3Star}
+                />
+                <CompactPriceLink
+                  href={destination.dining.sourceUrl}
+                  label={destination.dining.label}
+                  eyebrow="Dining"
+                  price={destination.dining}
                 />
               </div>
             ) : null}
