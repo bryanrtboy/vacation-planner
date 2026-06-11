@@ -5,28 +5,29 @@
   "scripts": {
     "dev": "next dev --webpack --hostname 127.0.0.1",
     "dev:turbo": "next dev --turbo --hostname 127.0.0.1",
-    "build": "next build",
-    "cf:build": "opennextjs-cloudflare build",
+    "next:build": "next build",
+    "build": "opennextjs-cloudflare build",
+    "cf:build": "npm run build",
     "cf:deploy": "opennextjs-cloudflare deploy",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "npm run cf:build && npm run cf:deploy",
+    "preview": "npm run build && opennextjs-cloudflare preview",
+    "deploy": "npm run build && npm run cf:deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^1.17.0",
     "next": "^16.2.9",
-    "react": "19.0.0",
-    "react-dom": "19.0.0"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "overrides": {
     "postcss": "^8.5.10"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.19.11",
-    "@types/node": "^22.10.1",
+    "@types/node": "^22.19.21",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "autoprefixer": "^10.4.20",

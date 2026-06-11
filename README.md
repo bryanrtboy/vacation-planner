@@ -50,11 +50,11 @@ Cloudflare dashboard settings:
 
 ```txt
 Framework preset: None / Workers
-Build command: npm run cf:build
-Deploy command: npm run cf:deploy
+Build command: npm run build
+Deploy command: npx wrangler deploy
 ```
 
-`npm run build` is only the plain Next.js build. It does not create the `.open-next` worker output that `wrangler deploy` needs, which is why a deployment can fail with `Could not find compiled Open Next config`.
+`npm run build` runs the Cloudflare OpenNext build and creates `.open-next/worker.js`. The plain Next.js build is available as `npm run next:build`.
 
 Local Cloudflare build/deploy command:
 
@@ -79,6 +79,14 @@ WATCH_MAX_DESTINATIONS=20
 ```
 
 Keep `APP_PASSWORD` and `APP_SESSION_SECRET` in Cloudflare environment variables/secrets, not in the repository.
+
+In the Cloudflare dashboard, add them under:
+
+```txt
+Workers & Pages -> artist-travel-finder -> Settings -> Variables and Secrets
+```
+
+Use `Secret` for `APP_PASSWORD` and `APP_SESSION_SECRET`. The watch limit values can be plain environment variables.
 
 ## Cost-control design
 

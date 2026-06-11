@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "artist-travel-finder",
+  "name": "vacation-planner",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-06-10",
   "compatibility_flags": ["nodejs_compat"],
@@ -10,5 +10,10 @@
   },
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "WATCH_DAILY_CAP": "25",
+    "WATCH_REFRESH_STALE_HOURS": "24",
+    "WATCH_MAX_DESTINATIONS": "20"
   }
 }
