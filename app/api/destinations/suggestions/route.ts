@@ -231,6 +231,7 @@ function normalizePreferences(preferences?: Partial<TripPreferences>): TripPrefe
   return {
     ...normalized,
     departure: normalized.departure.trim().toUpperCase(),
+    travelMode: normalized.travelMode === "drive" ? "drive" : "fly",
     flightCount: Math.min(Math.max(Math.round(Number(normalized.flightCount) || 2), 1), 8),
     nights: Math.min(Math.max(Math.round(Number(normalized.nights) || 7), 1), 60)
   };

@@ -27,6 +27,7 @@ function normalizePreferences(preferences?: Partial<TripPreferences>): TripPrefe
     ...defaultTripPreferences,
     ...preferences,
     departure: (preferences?.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+    travelMode: preferences?.travelMode === "drive" ? "drive" : "fly",
     flightCount: Math.max(
       normalizeFlightCount(preferences?.flightCount),
       minimumFlightCountForLodging(lodging)

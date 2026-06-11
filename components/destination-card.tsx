@@ -3,11 +3,13 @@
 import { type ReactNode, useState } from "react";
 import Image from "next/image";
 import {
+  Car,
   ChevronDown,
   ExternalLink,
   Image as ImageIcon,
   Info,
   MapPin,
+  Plane,
   RefreshCw,
   Search,
   Star,
@@ -147,12 +149,14 @@ function tripCostSummary(
   destination: Destination,
   airfare: PriceRange | undefined,
   nights: number,
+  travelMode: TripPreferences["travelMode"],
   lodgingSnapshot?: WatchRefreshResult,
   unavailable?: WatchRefreshResult,
   isCheckingFare?: boolean,
   isCheckingLodging?: boolean
 ) {
-  const airfareCost = airfare ? rangeMidpoint(airfare) : undefined;
+  const isDriving = travelMode === "drive";
+  const airfareCost = !isDriving && airfare ? rangeMidpoint(airfare) : undefined;
   const lodgingCost = lodgingCostEstimate(lodgingSnapshot);
   const diningCost = diningCostEstimate(destination, nights);
   const knownCosts = [airfareCost, lodgingCost, diningCost].filter(
@@ -160,13 +164,13 @@ function tripCostSummary(
   );
   const total = knownCosts.reduce((sum, value) => sum + value, 0);
   const missing = [
-    !airfare || unavailable ? "airfare" : undefined,
+    !isDriving && (!airfare || unavailable) ? "airfare" : undefined,
     typeof lodgingCost !== "number" ? "lodging" : undefined,
     typeof diningCost !== "number" && destination.dining.sourceKind !== "unavailable"
       ? "dining"
       : undefined
   ].filter((value): value is string => Boolean(value));
-  const checking = isCheckingFare || isCheckingLodging;
+  const checking = (!isDriving && isCheckingFare) || isCheckingLodging;
 
   if (!knownCosts.length) {
     return checking ? "Cost not checked yet; checking prices." : "Cost not checked yet.";
@@ -184,17 +188,34 @@ function compactLodgingLabel(mode: LodgingMode) {
   return "apartment";
 }
 
-function compactTripCostSummary(summary: string, nights: number, lodgingMode: LodgingMode) {
+function compactTripSetup(nights: number, lodgingMode: LodgingMode, travelMode: TripPreferences["travelMode"]) {
+  const travel = travelMode === "drive" ? "driving" : undefined;
+  const lodging = compactLodgingLabel(lodgingMode);
+  return travel
+    ? `${tripLengthLabel(nights)}, ${travel} + ${lodging}`
+    : `${tripLengthLabel(nights)} + ${lodging}`;
+}
+
+function compactTripCostSummary(
+  summary: string,
+  nights: number,
+  lodgingMode: LodgingMode,
+  travelMode: TripPreferences["travelMode"]
+) {
   const compact = summary
     .replace(/^Cost around\s+/i, "")
     .replace(/^Cost\s+/i, "")
     .replace(/\.$/, "");
 
+  if (travelMode === "drive" && (compact.includes(" before lodging") || compact.includes("checking"))) {
+    return compactTripSetup(nights, lodgingMode, travelMode);
+  }
+
   if (!compact.startsWith("$") || compact.includes(" before ") || compact.includes("checking")) {
     return compact;
   }
 
-  return `${compact} – ${tripLengthLabel(nights)} + ${compactLodgingLabel(lodgingMode)}`;
+  return `${compact} – ${compactTripSetup(nights, lodgingMode, travelMode)}`;
 }
 
 function rangeLabel(range: { min: number; max: number }) {
@@ -829,7 +850,8 @@ function ScenarioSummary({
     onScenarioChange?.({
       ...preferences,
       ...next,
-      departure: (next.departure ?? preferences.departure).trim().toUpperCase()
+      departure: (next.departure ?? preferences.departure).trim().toUpperCase(),
+      travelMode: next.travelMode === "drive" ? "drive" : next.travelMode === "fly" ? "fly" : preferences.travelMode
     });
   }
 
@@ -869,7 +891,10 @@ function ScenarioSummary({
             Selected scenario
           </span>
           <span className="mt-1 block text-xs font-semibold leading-5 text-ink/76">
-            {preferences.departure} · {flightCountLabel(preferences.flightCount)} ·{" "}
+            {preferences.travelMode === "drive"
+              ? "Driving"
+              : `${preferences.departure} · ${flightCountLabel(preferences.flightCount)}`}{" "}
+            ·{" "}
             {travelDateLabel(tripWindow)} · {tripLengthLabel(preferences.nights)}
           </span>
         </span>
@@ -900,11 +925,45 @@ function ScenarioSummary({
         </select>
       </label>
       <span className="mt-0.5 block text-[11px] leading-4 text-ink/42">
-        These settings drive the summary cost and the airfare and lodging checks on this card.
+        These settings drive the summary cost and the price checks on this card.
       </span>
       {editing ? (
         <div className="mt-3 grid gap-3">
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-4">
+            <div className="rounded-md border border-ink/10 bg-white px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+                Travel
+              </span>
+              <div className="mt-1 grid h-9 grid-cols-2 rounded-md border border-ink/12 bg-white p-0.5">
+                {[
+                  { value: "fly", label: "Fly", icon: Plane },
+                  { value: "drive", label: "Drive", icon: Car }
+                ].map((option) => {
+                  const Icon = option.icon;
+                  const active = (preferences.travelMode ?? "fly") === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        applyScenarioChanges({
+                          travelMode: option.value as TripPreferences["travelMode"]
+                        })
+                      }
+                      className={`inline-flex items-center justify-center gap-1 rounded-[4px] text-xs font-semibold transition ${
+                        active
+                          ? "bg-harbor text-white"
+                          : "text-ink/58 hover:bg-ink/[0.04] hover:text-ink"
+                      }`}
+                      aria-pressed={active}
+                    >
+                      <Icon size={13} aria-hidden="true" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <label className="grid gap-1 rounded-md border border-ink/10 bg-white px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
                 Departure
@@ -1187,9 +1246,15 @@ export function DestinationCard({
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
   const [photoUrl, setPhotoUrl] = useState(theme.photoUrl);
-  const airfare = snapshotAirfare(destination, fareSnapshot, preferences.flightCount);
+  const isDriving = preferences.travelMode === "drive";
+  const airfare = isDriving
+    ? undefined
+    : snapshotAirfare(destination, fareSnapshot, preferences.flightCount);
   const unavailableFare =
-    unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
+    isDriving
+      ? undefined
+      : unavailableAirfare(fareSnapshot) ??
+        (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
   const airfareStatusText = airfare
     ? `Travel dates ${travelDateLabel(tripWindow)} · ${flightCountLabel(preferences.flightCount)} · ${
@@ -1205,6 +1270,7 @@ export function DestinationCard({
     destination,
     airfare,
     preferences.nights,
+    preferences.travelMode,
     lodgingSnapshot,
     unavailableFare,
     isCheckingFare,
@@ -1255,7 +1321,7 @@ export function DestinationCard({
                 </a>
               </h3>
               <p className="mt-2 text-base font-semibold leading-5 text-white/94">
-                {compactTripCostSummary(costSummary, preferences.nights, lodgingMode)}
+                {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
               </p>
             </div>
             <button
@@ -1312,7 +1378,7 @@ export function DestinationCard({
               </a>
             </h3>
             <p className="mt-2 text-base font-semibold leading-5 text-white/94">
-              {compactTripCostSummary(costSummary, preferences.nights, lodgingMode)}
+              {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
             </p>
           </div>
           <button
@@ -1372,7 +1438,7 @@ export function DestinationCard({
                   savedSearches={savedSearches}
                   onScenarioChange={onScenarioChange}
                 />
-                {isCheckingFare ? (
+                {isDriving ? null : isCheckingFare ? (
                   <CheckingPriceLink
                     tripWindow={tripWindow}
                     flightCount={preferences.flightCount}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BedDouble, CalendarDays, MapPin, Palette, Sparkles, Users } from "lucide-react";
+import { BedDouble, CalendarDays, Car, MapPin, Palette, Plane, Sparkles, Users } from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
 import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
 import {
@@ -306,7 +306,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const snapshotKey = useCallback(
     (slug: string, activePreferences: TripPreferences, tripWindow: { departDate: string; returnDate: string }) =>
-      `${slug}:${activePreferences.departure}:${activePreferences.flightCount}:${tripWindow.departDate}:${tripWindow.returnDate}`,
+      `${slug}:${activePreferences.travelMode ?? "fly"}:${activePreferences.departure}:${activePreferences.flightCount}:${tripWindow.departDate}:${tripWindow.returnDate}`,
     []
   );
   const lodgingKey = useCallback(
@@ -359,6 +359,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       };
       const lodging = nextPreferences.lodging;
       nextPreferences.departure = nextPreferences.departure.trim().toUpperCase();
+      nextPreferences.travelMode = nextPreferences.travelMode === "drive" ? "drive" : "fly";
       nextPreferences.flightCount = Math.max(
         normalizeFlightCount(nextPreferences.flightCount),
         minimumFlightCountForLodging(lodging)
@@ -419,6 +420,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     let cancelled = false;
 
     async function hydrateCachedSnapshots() {
+      if (preferences.travelMode === "drive") {
+        setSnapshots(readStoredSnapshots());
+        return;
+      }
+
       try {
         const response = await fetch("/api/airfare/snapshots", {
           method: "POST",
@@ -618,16 +624,20 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const hydrateScenarioSnapshots = useCallback(
     async (destination: Destination, activePreferences: TripPreferences) => {
       try {
+        const fareRequest =
+          activePreferences.travelMode === "drive"
+            ? Promise.resolve(undefined)
+            : fetch("/api/airfare/snapshots", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  preferences: activePreferences,
+                  refresh: false,
+                  slugs: [destination.slug]
+                })
+              });
         const [fareResponse, lodgingResponse] = await Promise.all([
-          fetch("/api/airfare/snapshots", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              preferences: activePreferences,
-              refresh: false,
-              slugs: [destination.slug]
-            })
-          }),
+          fareRequest,
           fetch("/api/lodging/snapshots", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -640,7 +650,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         ]);
         const tripWindow = tripWindowFor(destination, activePreferences);
 
-        if (fareResponse.ok) {
+        if (fareResponse?.ok) {
           const data = (await fareResponse.json()) as SnapshotResponse;
           setUsage(data.usage);
           if (data.results.length) {
@@ -679,6 +689,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         ...current,
         [destination.slug]: {
           departure: nextPreferences.departure,
+          travelMode: nextPreferences.travelMode,
           flightCount: nextPreferences.flightCount,
           nights: nextPreferences.nights,
           lodging: nextPreferences.lodging,
@@ -862,6 +873,41 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           ) : null}
         </div>
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+          <div className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <Plane size={14} className="text-clay/72" aria-hidden="true" />
+              Travel
+            </span>
+            <div className="mt-1 grid h-9 grid-cols-2 rounded-md border border-ink/12 bg-white p-0.5">
+              {[
+                { value: "fly", label: "Fly", icon: Plane },
+                { value: "drive", label: "Drive", icon: Car }
+              ].map((option) => {
+                const Icon = option.icon;
+                const active = (preferences.travelMode ?? "fly") === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() =>
+                      updateGeneratorPreferences({
+                        travelMode: option.value as TripPreferences["travelMode"]
+                      })
+                    }
+                    className={`inline-flex items-center justify-center gap-1 rounded-[4px] text-xs font-semibold transition ${
+                      active
+                        ? "bg-clay text-white"
+                        : "text-ink/58 hover:bg-ink/[0.04] hover:text-ink"
+                    }`}
+                    aria-pressed={active}
+                  >
+                    <Icon size={13} aria-hidden="true" />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
             <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
               <MapPin size={14} className="text-clay/72" aria-hidden="true" />
@@ -956,7 +1002,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               ))}
             </select>
           </label>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2 xl:col-span-2">
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2 xl:col-span-1">
             <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
               <Palette size={14} className="text-clay/72" aria-hidden="true" />
               Interests

@@ -1,6 +1,6 @@
 import { GEMINI_MODEL } from "@/lib/settings";
 import { getEnvValue } from "@/lib/storage/cloudflare";
-import type { DestinationSuggestion } from "@/lib/types";
+import type { DestinationSuggestion, TripPreferences } from "@/lib/types";
 
 const geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -18,13 +18,10 @@ export type SuggestDestinationsInput = {
     fitSummary: string;
     interests: string[];
   }[];
-  preferences: {
-    departure: string;
-    flightCount: number;
-    nights: number;
-    lodging: string;
-    interests: string;
-  };
+  preferences: Pick<
+    TripPreferences,
+    "departure" | "travelMode" | "flightCount" | "nights" | "lodging" | "interests"
+  >;
 };
 
 export type SuggestionMemoryItem = {
@@ -202,9 +199,15 @@ Hard rules:
 - Do not include airfare or lodging prices.
 - Include a rough dining estimate in USD per day for two adults. It can be approximate, but it should be useful for planning. Base it on the local cost level, casual restaurant meals, cafes, markets, and a modest amount of nicer dining. Use confidence "low" when evidence is thin.
 - Do not invent current event dates unless you are confident; describe event/gallery potential generally.
-- Prefer places accessible from ${input.preferences.departure}.
+- Prefer places accessible from ${input.preferences.departure}${
+    input.preferences.travelMode === "drive" ? " by car without airfare" : " by flight"
+  }.
 - Match interests: ${input.preferences.interests}.
-- Lodging preference: ${input.preferences.lodging}; ${input.preferences.flightCount} flight tickets; ${
+- Lodging preference: ${input.preferences.lodging}; ${
+    input.preferences.travelMode === "drive"
+      ? `${input.preferences.flightCount} travelers; driving trip`
+      : `${input.preferences.flightCount} flight tickets`
+  }; ${
     input.preferences.nights
   } nights.
 - Avoid duplicating existing destinations by name.

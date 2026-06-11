@@ -7,6 +7,7 @@ export const savedSearchSelectedEvent = "artist-travel-finder:saved-search-selec
 
 export const defaultTripPreferences: TripPreferences = {
   departure: defaultPreferences.homeAirport,
+  travelMode: "fly",
   flightCount: 2,
   nights: 7,
   lodging: "rentals first",
@@ -125,6 +126,7 @@ export function readTripPreferences(): TripPreferences {
       ...defaultTripPreferences,
       ...parsed,
       departure: (parsed.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+      travelMode: parsed.travelMode === "drive" ? "drive" : "fly",
       flightCount,
       nights: normalizeNights(parsed.nights ?? legacyLength),
       travelSeason: parsed.travelSeason ?? defaultTripPreferences.travelSeason

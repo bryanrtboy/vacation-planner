@@ -24,6 +24,7 @@ function normalizePreferences(preferences?: Partial<TripPreferences>): TripPrefe
     ...defaultTripPreferences,
     ...preferences,
     departure: (preferences?.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+    travelMode: preferences?.travelMode === "drive" ? "drive" : "fly",
     flightCount: Math.max(
       normalizeFlightCount(preferences?.flightCount),
       minimumFlightCountForLodging(lodging)
@@ -61,6 +62,13 @@ export async function POST(request: Request) {
   } | null;
   const preferences = normalizePreferences(body?.preferences);
   const shouldRefresh = body?.refresh === true;
+  if (preferences.travelMode === "drive") {
+    return NextResponse.json({
+      usage: await getUsageState(),
+      results: []
+    });
+  }
+
   const destinations = await listDestinationCandidates();
   const destinationBySlug = new Map(destinations.map((destination) => [destination.slug, destination]));
   const requestedSlugs = body?.slugs?.length

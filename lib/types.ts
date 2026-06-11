@@ -3,6 +3,7 @@ export type TripSeason = "recommended" | "spring" | "fall" | "saved";
 
 export type TripPreferences = {
   departure: string;
+  travelMode?: "fly" | "drive";
   flightCount: number;
   nights: number;
   lodging: string;
