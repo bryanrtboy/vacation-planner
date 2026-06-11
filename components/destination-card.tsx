@@ -4,9 +4,11 @@ import { type ReactNode, useState } from "react";
 import {
   ChevronDown,
   ExternalLink,
+  Image as ImageIcon,
   Info,
   MapPin,
   RefreshCw,
+  Search,
   Star,
 } from "lucide-react";
 import { googleFlightsSearchUrl } from "@/lib/flights/links";
@@ -57,6 +59,12 @@ function ScoreRating({ label, value }: { label: string; value: number }) {
 function mapsUrl(destination: Destination) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     destination.mapQuery
+  )}`;
+}
+
+function imageSearchUrl(destination: Destination) {
+  return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(
+    `${destination.name} ${destination.region} travel`
   )}`;
 }
 
@@ -467,6 +475,111 @@ function InfoButton({
         </>
       ) : null}
     </span>
+  );
+}
+
+function PhotoTools({
+  destination,
+  photoUrl,
+  onPhotoChange
+}: {
+  destination: Destination;
+  photoUrl: string;
+  onPhotoChange: (photoUrl: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(photoUrl);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const sourceUrl = destination.visualTheme.photoSourceUrl ?? photoUrl;
+
+  async function savePhoto() {
+    const nextUrl = value.trim();
+    if (!nextUrl) {
+      setMessage("Paste an image URL first.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("Saving photo...");
+    try {
+      const response = await fetch("/api/destinations/photo", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: destination.slug, photoUrl: nextUrl })
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string; photoUrl?: string };
+      if (!response.ok || !data.photoUrl) throw new Error(data.message ?? "Unable to save photo.");
+      onPhotoChange(data.photoUrl);
+      setValue(data.photoUrl);
+      setMessage(data.message ?? "Photo saved.");
+      setOpen(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save photo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="absolute right-4 top-4 z-10 text-shadow-none">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-white/35 bg-black/35 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/50"
+        aria-expanded={open}
+      >
+        <ImageIcon size={14} aria-hidden="true" />
+        Photo
+      </button>
+      {open ? (
+        <div className="absolute right-0 mt-2 w-[min(82vw,22rem)] rounded-md border border-ink/12 bg-white p-3 text-left text-xs leading-5 text-ink shadow-soft">
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 font-semibold text-ink/64 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              <ExternalLink size={12} aria-hidden="true" />
+              View image
+            </a>
+            <a
+              href={imageSearchUrl(destination)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 font-semibold text-ink/64 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              <Search size={12} aria-hidden="true" />
+              Search images
+            </a>
+          </div>
+          <label className="mt-3 block">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Image URL</span>
+            <input
+              className="mt-1 w-full rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-medium text-ink outline-none transition focus:border-harbor/45"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder="https://..."
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] text-ink/42">
+              Use a direct public image URL from the actual place.
+            </span>
+            <button
+              type="button"
+              onClick={() => void savePhoto()}
+              disabled={saving}
+              className="rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-wait disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+          {message ? <span className="mt-2 block text-[11px] text-ink/48">{message}</span> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1047,6 +1160,7 @@ export function DestinationCard({
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
+  const [photoUrl, setPhotoUrl] = useState(theme.photoUrl);
   const airfare = snapshotAirfare(destination, fareSnapshot, preferences.flightCount);
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
@@ -1060,9 +1174,9 @@ export function DestinationCard({
             : "planning estimate from"
       } ${shortDate(airfare.retrievedAt)}`
     : undefined;
-  const bannerStyle = theme.photoUrl
+  const bannerStyle = photoUrl
     ? {
-        backgroundImage: `${theme.photoOverlay}, url("${theme.photoUrl}")`,
+        backgroundImage: `${theme.photoOverlay}, url("${photoUrl}")`,
         backgroundPosition: theme.photoPosition ?? "center"
       }
     : undefined;
@@ -1077,6 +1191,7 @@ export function DestinationCard({
           className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/14 to-transparent" />
+        <PhotoTools destination={destination} photoUrl={photoUrl} onPhotoChange={setPhotoUrl} />
         <div className="relative px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.72),_0_1px_1px_rgb(0_0_0_/_0.9)]">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">

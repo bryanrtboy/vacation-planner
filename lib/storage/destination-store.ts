@@ -137,3 +137,43 @@ export async function writeDestinationCandidate(destination: Destination) {
 
   return Boolean(result);
 }
+
+export async function updateDestinationPhoto(slug: string, photoUrl: string) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const row = await db
+    .prepare("SELECT payload_json FROM destination_candidates WHERE slug = ?1")
+    .bind(slug)
+    .first<DestinationRow>()
+    .catch(() => null);
+
+  if (!row) return false;
+
+  try {
+    const destination = JSON.parse(row.payload_json) as Destination;
+    const nextDestination: Destination = {
+      ...destination,
+      visualTheme: {
+        ...destination.visualTheme,
+        photoUrl,
+        photoSourceUrl: photoUrl,
+        photoPosition: destination.visualTheme.photoPosition ?? "center"
+      }
+    };
+    const timestamp = nowIso();
+    const result = await db
+      .prepare(
+        `UPDATE destination_candidates
+         SET payload_json = ?1, updated_at = ?2
+         WHERE slug = ?3`
+      )
+      .bind(JSON.stringify(nextDestination), timestamp, slug)
+      .run()
+      .catch(() => null);
+
+    return Boolean(result);
+  } catch {
+    return false;
+  }
+}

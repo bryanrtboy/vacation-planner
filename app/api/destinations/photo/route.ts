@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { defaultFallbackPhoto } from "@/lib/destination-photos";
+import { updateDestinationPhoto } from "@/lib/storage/destination-store";
 
 export const runtime = "nodejs";
 
@@ -77,4 +78,36 @@ export async function GET(request: Request) {
   } catch {
     return redirectTo(fallback);
   }
+}
+
+export async function PATCH(request: Request) {
+  const body = (await request.json().catch(() => null)) as {
+    slug?: string;
+    photoUrl?: string;
+  } | null;
+  const slug = body?.slug?.trim();
+  const photoUrl = body?.photoUrl?.trim();
+
+  if (!slug || !photoUrl) {
+    return NextResponse.json({ ok: false, message: "Destination and photo URL are required." }, { status: 400 });
+  }
+
+  try {
+    const parsed = new URL(photoUrl);
+    if (parsed.protocol !== "https:") {
+      return NextResponse.json({ ok: false, message: "Photo URL must start with https://." }, { status: 400 });
+    }
+  } catch {
+    return NextResponse.json({ ok: false, message: "Photo URL is not valid." }, { status: 400 });
+  }
+
+  const ok = await updateDestinationPhoto(slug, photoUrl);
+  return NextResponse.json(
+    {
+      ok,
+      photoUrl,
+      message: ok ? "Photo saved." : "Unable to save photo."
+    },
+    { status: ok ? 200 : 500 }
+  );
 }

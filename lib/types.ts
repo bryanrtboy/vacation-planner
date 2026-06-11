@@ -55,6 +55,7 @@ export type Destination = {
     accentName: string;
     bannerClass: string;
     photoUrl: string;
+    photoSourceUrl?: string;
     photoPosition?: string;
     photoOverlay?: string;
     heroOverlayClass: string;

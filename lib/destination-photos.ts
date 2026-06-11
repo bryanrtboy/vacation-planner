@@ -6,9 +6,13 @@ export const fallbackPhotoByRegion: Record<string, string> = {
     "https://commons.wikimedia.org/wiki/Special:FilePath/British%20Columbia%20Parliament%20Buildings%20-%20Pano%20-%20HDR.jpg?width=800",
   Italy:
     "https://commons.wikimedia.org/wiki/Special:FilePath/Panoramica%20Cattedrale%20di%20Palermo.jpg?width=800",
+  Japan:
+    "https://commons.wikimedia.org/wiki/Special:FilePath/Kenrokuen%20in%20May%202010.jpg?width=800",
   Mexico: "https://commons.wikimedia.org/wiki/Special:FilePath/Colonial%20Oaxaca.jpg?width=800",
   Morocco:
     "https://commons.wikimedia.org/wiki/Special:FilePath/Morocco%20-%20Essaouira%20Part%202%20%2831679848385%29.jpg?width=800",
+  Netherlands:
+    "https://commons.wikimedia.org/wiki/Special:FilePath/Haarlem%2C%20Grote%20Markt%20foto7%202010-06-06%2010.57.JPG?width=800",
   Portugal:
     "https://commons.wikimedia.org/wiki/Special:FilePath/Puente%20Don%20Luis%20I%2C%20Oporto%2C%20Portugal%2C%202012-05-09%2C%20DD%2013.JPG?width=800",
   Slovenia:
