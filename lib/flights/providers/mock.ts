@@ -11,12 +11,15 @@ export async function sampleMockFare({
   destination
 }: FlightProviderContext): Promise<WatchRefreshResult> {
   const base = destination.airfare;
+  const adults = search.adults ?? 1;
   const delta = stableDelta(`${search.id}-${new Date().toISOString().slice(0, 10)}`);
+  const baseMin = base.min * adults;
+  const baseMax = base.max * adults;
   const currentRange = {
-    min: Math.max(base.min + delta, 0),
-    max: Math.max(base.max + delta, base.min + delta + 120)
+    min: Math.max(baseMin + delta, 0),
+    max: Math.max(baseMax + delta, baseMin + delta + 120)
   };
-  const previousRange = search.lastRange ?? { min: base.min + 80, max: base.max + 80 };
+  const previousRange = search.lastRange ?? { min: baseMin + 80, max: baseMax + 80 };
   const midpointChange =
     (currentRange.min + currentRange.max) / 2 - (previousRange.min + previousRange.max) / 2;
   const direction = midpointChange < -75 ? "dropped" : midpointChange > 75 ? "rose" : "held steady";
@@ -26,7 +29,9 @@ export async function sampleMockFare({
     destinationSlug: search.destinationSlug,
     destinationName: search.destinationName,
     status: "checked",
-    message: `Mock airfare ${direction} for ${search.route}. Add SERPAPI_API_KEY to use live Google Flights fares.`,
+    message: `Mock airfare ${direction} for ${search.route} (${adults} ${
+      adults === 1 ? "ticket" : "tickets"
+    }). Add SERPAPI_API_KEY to use live Google Flights fares.`,
     provider: "Mock flight sampler",
     previousRange,
     currentRange,

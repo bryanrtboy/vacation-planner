@@ -50,7 +50,7 @@ export function airfareSnapshotSearch(search: WatchedSearch): PriceSnapshotSearc
     destinationQuery: search.route,
     departDate: search.departDate,
     returnDate: search.returnDate,
-    adults: 1,
+    adults: search.adults ?? 1,
     children: 0
   };
 }

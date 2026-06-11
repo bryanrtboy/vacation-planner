@@ -20,6 +20,10 @@ declare global {
 
   interface CloudflareEnv {
     DB?: D1Database;
+    AI_DAILY_CAP?: string;
+    AI_PROVIDER?: string;
+    GEMINI_API_KEY?: string;
+    GEMINI_MODEL?: string;
   }
 }
 

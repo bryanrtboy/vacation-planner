@@ -8,7 +8,12 @@ import {
   writePriceSnapshot
 } from "@/lib/storage/price-snapshot-store";
 import { lodgingSnapshotSearch } from "@/lib/storage/snapshot-keys";
-import { defaultTripPreferences, recommendedTripWindow } from "@/lib/trip-preferences";
+import {
+  defaultTripPreferences,
+  minimumFlightCountForLodging,
+  normalizeFlightCount,
+  recommendedTripWindow
+} from "@/lib/trip-preferences";
 import type { TripPreferences, WatchRefreshResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -17,10 +22,15 @@ const lodgingUsageService = "serpapi";
 
 function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
   const nights = Number(preferences?.nights);
+  const lodging = preferences?.lodging ?? defaultTripPreferences.lodging;
   return {
     ...defaultTripPreferences,
     ...preferences,
     departure: (preferences?.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+    flightCount: Math.max(
+      normalizeFlightCount(preferences?.flightCount),
+      minimumFlightCountForLodging(lodging)
+    ),
     nights: Number.isFinite(nights)
       ? Math.min(Math.max(Math.round(nights), 1), 60)
       : defaultTripPreferences.nights

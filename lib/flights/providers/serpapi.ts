@@ -41,7 +41,8 @@ function normalizeFare(
     ...context.destination.flightSearch,
     origin: context.search.origin ?? context.destination.flightSearch.origin,
     departDate: context.search.departDate ?? context.destination.flightSearch.departDate,
-    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate
+    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate,
+    adults: context.search.adults ?? 1
   };
   const sampledDates = `${flightSearch.departDate}-${flightSearch.returnDate}`;
 
@@ -67,7 +68,8 @@ function unavailableResult(
     ...context.destination.flightSearch,
     origin: context.search.origin ?? context.destination.flightSearch.origin,
     departDate: context.search.departDate ?? context.destination.flightSearch.departDate,
-    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate
+    returnDate: context.search.returnDate ?? context.destination.flightSearch.returnDate,
+    adults: context.search.adults ?? 1
   };
   const sourceUrl = googleFlightsSearchUrl(flightSearch);
 
@@ -123,8 +125,9 @@ export async function sampleSerpApiFare(
     currency: "USD",
     hl: "en",
     gl: "us",
-    adults: "1"
+    adults: String(context.search.adults ?? 1)
   });
+  const ticketCount = context.search.adults ?? 1;
 
   try {
     const response = await fetch(`${serpApiEndpoint}?${params.toString()}`);
@@ -150,7 +153,9 @@ export async function sampleSerpApiFare(
       status: "checked",
       message: `Live Google Flights airfare sampled ${fare.offerCount} result${
         fare.offerCount === 1 ? "" : "s"
-      } via SerpApi for ${context.search.route}; displayed range uses the lowest ${fare.displayedOfferCount}.`,
+      } via SerpApi for ${context.search.route} (${ticketCount} ${
+        ticketCount === 1 ? "ticket" : "tickets"
+      }); displayed range uses the lowest ${fare.displayedOfferCount}.`,
       provider: "SerpApi Google Flights",
       previousRange: context.search.lastRange,
       currentRange: { min: fare.min, max: fare.max },

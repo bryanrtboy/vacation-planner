@@ -7,17 +7,27 @@ import {
   writePriceSnapshot
 } from "@/lib/storage/price-snapshot-store";
 import { airfareSnapshotSearch } from "@/lib/storage/snapshot-keys";
-import { defaultTripPreferences, recommendedTripWindow } from "@/lib/trip-preferences";
+import {
+  defaultTripPreferences,
+  minimumFlightCountForLodging,
+  normalizeFlightCount,
+  recommendedTripWindow
+} from "@/lib/trip-preferences";
 import type { TripPreferences, WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
   const nights = Number(preferences?.nights);
+  const lodging = preferences?.lodging ?? defaultTripPreferences.lodging;
   return {
     ...defaultTripPreferences,
     ...preferences,
     departure: (preferences?.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+    flightCount: Math.max(
+      normalizeFlightCount(preferences?.flightCount),
+      minimumFlightCountForLodging(lodging)
+    ),
     nights: Number.isFinite(nights) ? Math.min(Math.max(Math.round(nights), 1), 60) : defaultTripPreferences.nights
   };
 }
@@ -35,6 +45,7 @@ function watchedSearchForSlug(slug: string, preferences: TripPreferences): Watch
     season: destination.bestMonths,
     tripLength: preferences.nights >= 28 ? "1-month" : "7-nights",
     origin: preferences.departure,
+    adults: preferences.flightCount,
     departDate: tripWindow.departDate,
     returnDate: tripWindow.returnDate,
     destinationAirports: destination.flightSearch.destinationAirports

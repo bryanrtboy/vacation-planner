@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
 import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
 import {
@@ -9,7 +10,7 @@ import {
   recommendedTripWindow,
   tripPreferencesChangedEvent
 } from "@/lib/trip-preferences";
-import type { Destination, UsageState, WatchRefreshResult } from "@/lib/types";
+import type { Destination, DestinationSuggestion, UsageState, WatchRefreshResult } from "@/lib/types";
 import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
@@ -24,6 +25,12 @@ type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 type SnapshotResponse = {
   usage: UsageState;
   results: WatchRefreshResult[];
+};
+
+type SuggestionResponse = {
+  usage: UsageState;
+  suggestions: DestinationSuggestion[];
+  message?: string;
 };
 
 const interestSynonyms: Record<string, string[]> = {
@@ -163,10 +170,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [visibleCount, setVisibleCount] = useState(initialVisibleDestinations);
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
+  const [aiUsage, setAiUsage] = useState<UsageState | null>(null);
+  const [suggestions, setSuggestions] = useState<DestinationSuggestion[]>([]);
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
+  const [suggestingDestinations, setSuggestingDestinations] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
+  const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -217,9 +228,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const snapshotKey = useCallback(
     (slug: string) => {
       const tripWindow = tripWindows[slug];
-      return `${slug}:${preferences.departure}:${tripWindow?.departDate}:${tripWindow?.returnDate}`;
+      return `${slug}:${preferences.departure}:${preferences.flightCount}:${tripWindow?.departDate}:${tripWindow?.returnDate}`;
     },
-    [preferences.departure, tripWindows]
+    [preferences.departure, preferences.flightCount, tripWindows]
   );
   const lodgingMode = useMemo(
     () => lodgingModeFromPreference(preferences.lodging),
@@ -259,6 +270,29 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       window.removeEventListener(tripPreferencesChangedEvent, syncPreferences);
       window.removeEventListener("storage", syncPreferences);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateSuggestions() {
+      try {
+        const response = await fetch("/api/destinations/suggestions");
+        if (!response.ok) return;
+        const data = (await response.json()) as SuggestionResponse;
+        if (cancelled) return;
+        setAiUsage(data.usage);
+        setSuggestions(data.suggestions);
+      } catch {
+        // Suggestions are optional and remain manual-only.
+      }
+    }
+
+    void hydrateSuggestions();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -438,6 +472,36 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     [destinations, lodgingKey, preferences]
   );
 
+  const suggestDestinations = useCallback(async () => {
+    setSuggestingDestinations(true);
+    setSuggestionStatusMessage("Asking Gemini for destination ideas...");
+
+    try {
+      const response = await fetch("/api/destinations/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          promptKind: "more-in-region",
+          region: regionFilter === allRegionsFilter ? undefined : regionFilter,
+          preferences
+        })
+      });
+      const data = (await response.json()) as SuggestionResponse;
+      setAiUsage(data.usage);
+      setSuggestions(data.suggestions);
+      setSuggestionStatusMessage(
+        data.message ??
+          (response.ok
+            ? "Draft destination suggestions saved."
+            : "Unable to generate suggestions.")
+      );
+    } catch {
+      setSuggestionStatusMessage("Unable to connect to the destination suggestion API.");
+    } finally {
+      setSuggestingDestinations(false);
+    }
+  }, [preferences, regionFilter]);
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3 text-xs text-ink/58">
@@ -500,7 +564,65 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             Clear
           </button>
         ) : null}
+        <span className="ml-auto inline-flex flex-col items-end gap-0.5">
+          <button
+            type="button"
+            onClick={() => void suggestDestinations()}
+            disabled={suggestingDestinations || aiUsage?.remaining === 0}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-harbor/30 bg-white px-3 text-xs font-semibold text-harbor transition hover:border-harbor hover:bg-harbor/5 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/5 disabled:text-ink/30"
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
+          </button>
+          {aiUsage ? (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+              {aiUsage.remaining}/{aiUsage.limit} AI left today
+            </span>
+          ) : null}
+        </span>
       </div>
+
+      {suggestions.length || suggestionStatusMessage ? (
+        <div className="mb-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/38">
+              Draft suggestions
+            </p>
+            {suggestionStatusMessage ? (
+              <p className="text-xs font-medium text-ink/54">{suggestionStatusMessage}</p>
+            ) : null}
+          </div>
+          {suggestions.length ? (
+            <div className="mt-2 grid gap-2 md:grid-cols-3">
+              {suggestions.slice(0, 6).map((suggestion) => (
+                <article
+                  key={suggestion.id}
+                  className="rounded-md border border-ink/10 bg-white px-3 py-2 text-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-ink">{suggestion.name}</p>
+                      <p className="text-xs font-medium text-ink/45">{suggestion.region}</p>
+                    </div>
+                    <span className="rounded-md bg-harbor/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-harbor">
+                      Draft
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-ink/64">
+                    {suggestion.payload.whyItFits}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-ink/45">
+                    Best months: {suggestion.payload.bestMonths}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-ink/45">
+                    Watch: {suggestion.payload.tradeoffs}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2 text-xs text-ink/58">
         <span>

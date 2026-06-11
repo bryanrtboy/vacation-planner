@@ -1,14 +1,16 @@
 "use client";
 
-import { BedDouble, CalendarDays, MapPin, Palette } from "lucide-react";
+import { BedDouble, CalendarDays, History, MapPin, Palette, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   defaultTripPreferences,
+  minimumFlightCountForLodging,
+  normalizeFlightCount,
   readTripPreferences,
   tripLengthLabel,
   writeTripPreferences
 } from "@/lib/trip-preferences";
-import type { TripPreferences } from "@/lib/types";
+import type { SavedSearchSummary, TripPreferences } from "@/lib/types";
 
 const airportOptions = [
   { code: "DEN", label: "Denver" },
@@ -78,6 +80,7 @@ export function PreferenceStrip() {
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
   const [customNightsOpen, setCustomNightsOpen] = useState(false);
   const [customInterestsOpen, setCustomInterestsOpen] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -91,13 +94,39 @@ export function PreferenceStrip() {
     return () => window.clearTimeout(id);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSavedSearches() {
+      try {
+        const response = await fetch("/api/saved-searches");
+        if (!response.ok) return;
+        const data = (await response.json()) as { savedSearches?: SavedSearchSummary[] };
+        if (!cancelled) setSavedSearches(data.savedSearches ?? []);
+      } catch {
+        // Recent shared saves are optional; local preferences still work without D1.
+      }
+    }
+
+    void loadSavedSearches();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function updatePreferences(next: Partial<TripPreferences>) {
     const nextPreferences = {
       ...preferences,
       ...next
     };
     nextPreferences.departure = nextPreferences.departure.trim().toUpperCase();
+    nextPreferences.flightCount = normalizeFlightCount(nextPreferences.flightCount);
     nextPreferences.nights = normalizeNights(nextPreferences.nights);
+    nextPreferences.flightCount = Math.max(
+      nextPreferences.flightCount,
+      minimumFlightCountForLodging(nextPreferences.lodging)
+    );
     setPreferences(nextPreferences);
     writeTripPreferences(nextPreferences);
   }
@@ -114,10 +143,47 @@ export function PreferenceStrip() {
     : "custom";
 
   return (
-    <section
-      className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
-      aria-label="Default trip preferences"
-    >
+    <section className="grid gap-2" aria-label="Default trip preferences">
+      {savedSearches.length ? (
+        <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+          <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+            <History size={15} className="text-harbor/72" aria-hidden="true" />
+            Recent saved checks
+          </span>
+          <select
+            className={fieldClass()}
+            defaultValue=""
+            onChange={(event) => {
+              const savedSearch = savedSearches.find((item) => item.id === event.target.value);
+              if (!savedSearch) return;
+              const next: Partial<TripPreferences> = {};
+              if (savedSearch.departure) next.departure = savedSearch.departure;
+              if (savedSearch.flightCount) next.flightCount = savedSearch.flightCount;
+              if (savedSearch.nights) next.nights = savedSearch.nights;
+              if (savedSearch.lodging) next.lodging = savedSearch.lodging;
+
+              setCustomNightsOpen(
+                Boolean(savedSearch.nights) &&
+                  !nightOptions.some((option) => option.value === savedSearch.nights)
+              );
+              updatePreferences(next);
+              event.target.value = "";
+            }}
+          >
+            <option value="">Apply a shared saved check...</option>
+            {savedSearches.map((savedSearch) => (
+              <option key={savedSearch.id} value={savedSearch.id}>
+                {savedSearch.label} · {savedSearch.detail}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[11px] font-medium text-ink/42">
+            Shared D1 checks from recent airfare and lodging searches.
+          </span>
+        </label>
+      ) : null}
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
       <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
         <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
           <MapPin size={15} className="text-harbor/72" aria-hidden="true" />
@@ -134,6 +200,24 @@ export function PreferenceStrip() {
             <option key={airport.code} value={airport.code} label={`${airport.code} · ${airport.label}`} />
           ))}
         </datalist>
+      </label>
+
+      <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
+        <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+          <Users size={15} className="text-harbor/72" aria-hidden="true" />
+          Flights
+        </span>
+        <input
+          className={fieldClass()}
+          type="number"
+          min={1}
+          max={8}
+          value={preferences.flightCount}
+          onChange={(event) => updatePreferences({ flightCount: Number(event.target.value) })}
+        />
+        <span className="mt-1 block text-[11px] font-medium text-ink/42">
+          {preferences.flightCount} {preferences.flightCount === 1 ? "ticket" : "tickets"}
+        </span>
       </label>
 
       <label className="rounded-md border border-ink/8 bg-white/50 px-3 py-2">
@@ -184,7 +268,13 @@ export function PreferenceStrip() {
         <select
           className={fieldClass()}
           value={preferences.lodging}
-          onChange={(event) => updatePreferences({ lodging: event.target.value })}
+          onChange={(event) => {
+            const lodging = event.target.value;
+            updatePreferences({
+              lodging,
+              flightCount: Math.max(preferences.flightCount, minimumFlightCountForLodging(lodging))
+            });
+          }}
         >
           {lodgingOptions.map((option) => (
             <option key={option} value={option}>
@@ -225,6 +315,7 @@ export function PreferenceStrip() {
           />
         ) : null}
       </label>
+      </div>
     </section>
   );
 }

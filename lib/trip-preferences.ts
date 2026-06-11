@@ -6,6 +6,7 @@ export const tripPreferencesChangedEvent = "artist-travel-finder:preferences-cha
 
 export const defaultTripPreferences: TripPreferences = {
   departure: defaultPreferences.homeAirport,
+  flightCount: 2,
   nights: 7,
   lodging: "rentals first",
   interests: "art · food · gardens"
@@ -46,6 +47,19 @@ function normalizeNights(value: unknown) {
   return Math.min(Math.max(Math.round(parsed), 1), 60);
 }
 
+export function normalizeFlightCount(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultTripPreferences.flightCount;
+  return Math.min(Math.max(Math.round(parsed), 1), 8);
+}
+
+export function minimumFlightCountForLodging(lodging: string) {
+  const normalized = lodging.toLowerCase();
+  if (normalized.includes("group") || normalized.includes("house")) return 4;
+  if (normalized.includes("apartment") || normalized.includes("for 2")) return 2;
+  return 1;
+}
+
 export function readTripPreferences(): TripPreferences {
   if (typeof window === "undefined") return defaultTripPreferences;
   const raw = window.localStorage.getItem(tripPreferencesStorageKey);
@@ -54,10 +68,16 @@ export function readTripPreferences(): TripPreferences {
   try {
     const parsed = JSON.parse(raw) as Partial<TripPreferences & { length?: string }>;
     const legacyLength = parsed.length?.match(/\d+/)?.[0];
+    const lodging = parsed.lodging ?? defaultTripPreferences.lodging;
+    const flightCount = Math.max(
+      normalizeFlightCount(parsed.flightCount),
+      minimumFlightCountForLodging(lodging)
+    );
     return {
       ...defaultTripPreferences,
       ...parsed,
       departure: (parsed.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
+      flightCount,
       nights: normalizeNights(parsed.nights ?? legacyLength)
     };
   } catch {

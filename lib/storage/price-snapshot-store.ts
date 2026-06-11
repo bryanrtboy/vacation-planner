@@ -1,6 +1,6 @@
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import { buildPriceSnapshotKey, type PriceSnapshotSearch } from "@/lib/storage/snapshot-keys";
-import type { PriceSourceKind, WatchRefreshResult } from "@/lib/types";
+import type { PriceSourceKind, SavedSearchSummary, WatchRefreshResult } from "@/lib/types";
 
 type PriceSnapshotRow = {
   snapshot_key: string;
@@ -25,6 +25,19 @@ type PriceSnapshotRow = {
   source_detail: string | null;
   source_kind: PriceSourceKind;
   raw_provider_json: string | null;
+};
+
+type SavedSearchRow = {
+  snapshot_key: string;
+  kind: "airfare" | "lodging";
+  mode: string | null;
+  destination_slug: string;
+  destination_name: string;
+  origin: string | null;
+  depart_date: string | null;
+  return_date: string | null;
+  adults: number | null;
+  updated_at: string;
 };
 
 function isFresh(retrievedAt: string | undefined, staleAfterHours: number) {
@@ -54,6 +67,74 @@ function rowToResult(row: PriceSnapshotRow): WatchRefreshResult {
     sourceDetail: row.source_detail ?? undefined,
     sourceKind: row.status === "checked" ? "cached" : row.source_kind,
     provider: row.provider
+  };
+}
+
+function shortDate(value: string | null) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+}
+
+function nightsBetween(departDate: string | null, returnDate: string | null) {
+  if (!departDate || !returnDate) return undefined;
+  const start = new Date(`${departDate}T00:00:00Z`).getTime();
+  const end = new Date(`${returnDate}T00:00:00Z`).getTime();
+  const nights = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(nights) && nights > 0 ? nights : undefined;
+}
+
+function lodgingPreference(mode: string | null) {
+  if (mode === "hotel") return "hotels";
+  if (mode === "group-house") return "group house rentals";
+  if (mode === "apartment") return "apartments for 2";
+  return undefined;
+}
+
+function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
+  const nights = nightsBetween(row.depart_date, row.return_date);
+  const dateLabel =
+    row.depart_date && row.return_date ? `${shortDate(row.depart_date)}-${shortDate(row.return_date)}` : "saved dates";
+  const peopleLabel = row.adults
+    ? `${row.adults} ${row.kind === "airfare" ? (row.adults === 1 ? "ticket" : "tickets") : row.adults === 1 ? "guest" : "guests"}`
+    : "saved people";
+  const lodging = lodgingPreference(row.mode);
+  const labelParts =
+    row.kind === "airfare"
+      ? [
+          row.destination_name,
+          row.origin ?? "saved origin",
+          peopleLabel,
+          `${nights ?? "?"} nights`
+        ]
+      : [
+          row.destination_name,
+          lodging ?? "lodging",
+          peopleLabel,
+          `${nights ?? "?"} nights`
+        ];
+
+  return {
+    id: row.snapshot_key,
+    label: labelParts.join(" · "),
+    detail:
+      row.kind === "airfare"
+        ? `Airfare checked ${dateLabel}`
+        : `${lodging ?? "lodging"} checked ${dateLabel}`,
+    kind: row.kind,
+    destinationSlug: row.destination_slug,
+    destinationName: row.destination_name,
+    departure: row.origin ?? undefined,
+    flightCount: row.kind === "airfare" ? row.adults ?? undefined : undefined,
+    nights,
+    lodging,
+    departDate: row.depart_date ?? undefined,
+    returnDate: row.return_date ?? undefined,
+    updatedAt: row.updated_at
   };
 }
 
@@ -153,4 +234,27 @@ export async function writePriceSnapshot(search: PriceSnapshotSearch, result: Wa
     )
     .run()
     .catch(() => undefined);
+}
+
+export async function listRecentSavedSearches(limit = 20): Promise<SavedSearchSummary[]> {
+  const db = await getD1Database();
+  if (!db) return [];
+
+  const rows = await db
+    .prepare(
+      `SELECT
+        snapshot_key, kind, mode, destination_slug, destination_name, origin,
+        depart_date, return_date, adults, updated_at
+       FROM price_snapshots
+       WHERE status = 'checked'
+         AND depart_date IS NOT NULL
+         AND return_date IS NOT NULL
+       ORDER BY updated_at DESC
+       LIMIT ?1`
+    )
+    .bind(Math.min(Math.max(Math.round(limit), 1), 50))
+    .all<SavedSearchRow>()
+    .catch(() => ({ results: [] }));
+
+  return rows.results.map(rowToSavedSearch);
 }

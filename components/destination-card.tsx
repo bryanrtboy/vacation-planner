@@ -89,6 +89,14 @@ function priceLabel(range: { min: number; max: number }, suffix: string) {
   return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()} ${suffix}`;
 }
 
+function flightCountLabel(count: number) {
+  return `${count} ${count === 1 ? "ticket" : "tickets"}`;
+}
+
+function airfareLabel(range: { min: number; max: number }, flightCount: number) {
+  return `${priceLabel(range, "total airfare")} · ${flightCountLabel(flightCount)}`;
+}
+
 function moneyLabel(value: number) {
   return `$${value.toLocaleString()}`;
 }
@@ -140,15 +148,20 @@ function tripCostSummary(
   destination: Destination,
   airfare: PriceRange | undefined,
   nights: number,
+  flightCount: number,
   unavailable?: WatchRefreshResult,
   isCheckingFare?: boolean
 ) {
   if (isCheckingFare) {
-    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; checking airfare.`;
+    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; checking airfare for ${flightCountLabel(
+      flightCount
+    )}.`;
   }
 
   if (!airfare || unavailable) {
-    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; airfare not checked.`;
+    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; airfare for ${flightCountLabel(
+      flightCount
+    )} not checked.`;
   }
 
   return `Cost around ${tripCostEstimate(destination, airfare, nights)}.`;
@@ -158,14 +171,18 @@ function rangeLabel(range: { min: number; max: number }) {
   return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()}`;
 }
 
-function resultAirfare(destination: Destination, result: WatchRefreshResult): PriceRange {
+function resultAirfare(
+  destination: Destination,
+  result: WatchRefreshResult,
+  flightCount: number
+): PriceRange {
   if (!result.currentRange) return destination.airfare;
 
   return {
     ...destination.airfare,
     min: result.currentRange.min,
     max: result.currentRange.max,
-    label: priceLabel(result.currentRange, "round trip"),
+    label: airfareLabel(result.currentRange, flightCount),
     provider: result.provider ?? destination.airfare.provider,
     sampledDates: result.sampledDates ?? destination.airfare.sampledDates,
     retrievedAt: result.retrievedAt ?? destination.airfare.retrievedAt,
@@ -177,9 +194,10 @@ function resultAirfare(destination: Destination, result: WatchRefreshResult): Pr
 
 function snapshotAirfare(
   destination: Destination,
-  fareSnapshot?: WatchRefreshResult
+  fareSnapshot: WatchRefreshResult | undefined,
+  flightCount: number
 ): PriceRange | undefined {
-  if (fareSnapshot?.status === "checked") return resultAirfare(destination, fareSnapshot);
+  if (fareSnapshot?.status === "checked") return resultAirfare(destination, fareSnapshot, flightCount);
   return undefined;
 }
 
@@ -198,14 +216,17 @@ function uncheckedAirfare(
     destinationSlug: destination.slug,
     destinationName: destination.name,
     status: "skipped",
-    message: `Airfare has not been checked for ${preferences.departure} and ${shortDate(
+    message: `Airfare has not been checked for ${preferences.departure}, ${flightCountLabel(
+      preferences.flightCount
+    )}, and ${shortDate(
       tripWindow.departDate
     )}-${shortDate(tripWindow.returnDate)}.`,
     sourceUrl: googleFlightsSearchUrl({
       origin: preferences.departure,
       destination: destination.flightSearch.destination,
       departDate: tripWindow.departDate,
-      returnDate: tripWindow.returnDate
+      returnDate: tripWindow.returnDate,
+      adults: preferences.flightCount
     }),
     sourceKind: "unavailable"
   };
@@ -432,11 +453,13 @@ function CompactPriceLink({
 function UnavailablePriceLink({
   result,
   tripWindow,
+  flightCount,
   onCheckFare,
   usage
 }: {
   result: WatchRefreshResult;
   tripWindow: TripWindow;
+  flightCount: number;
   onCheckFare?: () => void;
   usage?: UsageState | null;
 }) {
@@ -465,7 +488,7 @@ function UnavailablePriceLink({
           </span>
         )}
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Travel dates {travelDateLabel(tripWindow)} ·{" "}
+          Travel dates {travelDateLabel(tripWindow)} · {flightCountLabel(flightCount)} ·{" "}
           {wasChecked ? `last checked ${shortDate(result.retrievedAt!)}` : "not checked yet"}
         </span>
         <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
@@ -483,7 +506,13 @@ function UnavailablePriceLink({
   );
 }
 
-function CheckingPriceLink({ tripWindow }: { tripWindow: TripWindow }) {
+function CheckingPriceLink({
+  tripWindow,
+  flightCount
+}: {
+  tripWindow: TripWindow;
+  flightCount: number;
+}) {
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
@@ -495,7 +524,7 @@ function CheckingPriceLink({ tripWindow }: { tripWindow: TripWindow }) {
           Checking airfare...
         </span>
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Travel dates {travelDateLabel(tripWindow)} · querying live provider
+          Travel dates {travelDateLabel(tripWindow)} · {flightCountLabel(flightCount)} · querying live provider
         </span>
       </span>
     </div>
@@ -617,7 +646,7 @@ export function DestinationCard({
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
-  const airfare = snapshotAirfare(destination, fareSnapshot);
+  const airfare = snapshotAirfare(destination, fareSnapshot, preferences.flightCount);
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
   const rentalPrice = staySearchPrice(destination.lodging.rental, preferences.nights, tripWindow);
@@ -632,7 +661,7 @@ export function DestinationCard({
   );
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
   const airfareStatusText = airfare
-    ? `Travel dates ${travelDateLabel(tripWindow)} · ${
+    ? `Travel dates ${travelDateLabel(tripWindow)} · ${flightCountLabel(preferences.flightCount)} · ${
         airfare.sourceKind === "live" ? "live checked" : airfare.sourceKind === "cached" ? "cached from" : "mock from"
       } ${shortDate(airfare.retrievedAt)}`
     : undefined;
@@ -686,6 +715,7 @@ export function DestinationCard({
                 destination,
                 airfare,
                 preferences.nights,
+                preferences.flightCount,
                 unavailableFare,
                 isCheckingFare
               )}
@@ -720,11 +750,15 @@ export function DestinationCard({
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
                 {isCheckingFare ? (
-                  <CheckingPriceLink tripWindow={tripWindow} />
+                  <CheckingPriceLink
+                    tripWindow={tripWindow}
+                    flightCount={preferences.flightCount}
+                  />
                 ) : unavailableFare ? (
                   <UnavailablePriceLink
                     result={unavailableFare}
                     tripWindow={tripWindow}
+                    flightCount={preferences.flightCount}
                     onCheckFare={onCheckFare}
                     usage={usage}
                   />

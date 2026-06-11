@@ -2,6 +2,7 @@ export type TripLength = "7-nights" | "1-month";
 
 export type TripPreferences = {
   departure: string;
+  flightCount: number;
   nights: number;
   lodging: string;
   interests: string;
@@ -110,6 +111,7 @@ export type WatchedSearch = {
   season: string;
   tripLength: TripLength;
   origin?: string;
+  adults?: number;
   departDate?: string;
   returnDate?: string;
   destinationAirports?: string[];
@@ -152,4 +154,57 @@ export type UsageState = {
   used: number;
   limit: number;
   remaining: number;
+};
+
+export type SavedSearchSummary = {
+  id: string;
+  label: string;
+  detail: string;
+  kind: "airfare" | "lodging";
+  destinationSlug: string;
+  destinationName: string;
+  departure?: string;
+  flightCount?: number;
+  nights?: number;
+  lodging?: string;
+  departDate?: string;
+  returnDate?: string;
+  updatedAt: string;
+};
+
+export type DestinationSuggestionStatus = "draft" | "accepted" | "hidden";
+
+export type DestinationSuggestionPromptKind = "more-like-this" | "more-in-region" | "manual";
+
+export type DestinationSuggestion = {
+  id: string;
+  requestKey: string;
+  status: DestinationSuggestionStatus;
+  source: "gemini" | "openai";
+  promptKind: DestinationSuggestionPromptKind;
+  parentSlug?: string;
+  region?: string;
+  name: string;
+  destinationSlug?: string;
+  payload: {
+    name: string;
+    region: string;
+    whyItFits: string;
+    bestMonths: string;
+    tradeoffs: string;
+    airportTargets: string[];
+    lodgingAngle: string;
+    interests: string[];
+    starterLinks?: {
+      label: string;
+      url: string;
+      kind: "art" | "food" | "lodging" | "transport" | "guide";
+    }[];
+    photoSearch?: string;
+  };
+  rawResponseJson?: string;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
 };

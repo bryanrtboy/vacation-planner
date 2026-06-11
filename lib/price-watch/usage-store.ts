@@ -1,4 +1,4 @@
-import { SERPAPI_DAILY_CAP } from "@/lib/settings";
+import { AI_DAILY_CAP, SERPAPI_DAILY_CAP } from "@/lib/settings";
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import type { UsageState } from "@/lib/types";
 
@@ -12,6 +12,11 @@ const globalUsage = globalThis as typeof globalThis & {
 };
 
 const defaultService = "serpapi";
+
+function limitForService(service: string) {
+  if (service === "ai" || service === "gemini" || service === "openai") return AI_DAILY_CAP;
+  return SERPAPI_DAILY_CAP;
+}
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -28,17 +33,18 @@ function currentUsage(service: string): MutableUsageState {
   return globalUsage.artistTravelFinderUsage[service];
 }
 
-function usageState(usage: MutableUsageState): UsageState {
+function usageState(usage: MutableUsageState, service: string): UsageState {
+  const limit = limitForService(service);
   return {
     day: usage.day,
     used: usage.used,
-    limit: SERPAPI_DAILY_CAP,
-    remaining: Math.max(SERPAPI_DAILY_CAP - usage.used, 0)
+    limit,
+    remaining: Math.max(limit - usage.used, 0)
   };
 }
 
 function fallbackUsageState(service: string) {
-  return usageState(currentUsage(service));
+  return usageState(currentUsage(service), service);
 }
 
 export async function getUsageState(service = defaultService): Promise<UsageState> {
@@ -52,15 +58,16 @@ export async function getUsageState(service = defaultService): Promise<UsageStat
     .first<{ used: number }>()
     .catch(() => null);
 
-  if (!row) return usageState({ day, used: 0 });
-  return usageState({ day, used: row.used });
+  if (!row) return usageState({ day, used: 0 }, service);
+  return usageState({ day, used: row.used }, service);
 }
 
 export async function tryReserveChecks(count: number, service = defaultService) {
   const db = await getD1Database();
   if (!db) {
     const usage = currentUsage(service);
-    const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
+    const limit = limitForService(service);
+    const remaining = Math.max(limit - usage.used, 0);
     const allowed = Math.min(count, remaining);
     usage.used += allowed;
 
@@ -91,14 +98,16 @@ export async function tryReserveChecks(count: number, service = defaultService) 
 
   if (!row) {
     const usage = currentUsage(service);
-    const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
+    const limit = limitForService(service);
+    const remaining = Math.max(limit - usage.used, 0);
     const allowed = Math.min(count, remaining);
     usage.used += allowed;
     return { allowed, usage: fallbackUsageState(service) };
   }
 
   const usage = { day, used: row.used };
-  const remaining = Math.max(SERPAPI_DAILY_CAP - usage.used, 0);
+  const limit = limitForService(service);
+  const remaining = Math.max(limit - usage.used, 0);
   const allowed = Math.min(count, remaining);
   const nextUsed = usage.used + allowed;
 
@@ -110,6 +119,6 @@ export async function tryReserveChecks(count: number, service = defaultService) 
 
   return {
     allowed,
-    usage: usageState({ day, used: nextUsed })
+    usage: usageState({ day, used: nextUsed }, service)
   };
 }
