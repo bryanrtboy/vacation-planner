@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { BedDouble, CalendarDays, MapPin, Palette, Sparkles, Users } from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
 import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
 import {
   defaultTripPreferences,
+  minimumFlightCountForLodging,
+  normalizeFlightCount,
   readTripPreferences,
   recommendedTripWindow,
   savedSearchSelectedEvent,
-  tripPreferencesChangedEvent
+  tripLengthLabel,
+  tripPreferencesChangedEvent,
+  writeTripPreferences
 } from "@/lib/trip-preferences";
 import type {
   Destination,
@@ -28,6 +32,45 @@ const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTransportFilter = "all";
 const noScoreSort = "none";
+
+const airportOptions = [
+  { code: "DEN", label: "Denver" },
+  { code: "ABQ", label: "Albuquerque" },
+  { code: "ATL", label: "Atlanta" },
+  { code: "AUS", label: "Austin" },
+  { code: "BNA", label: "Nashville" },
+  { code: "BOS", label: "Boston" },
+  { code: "DFW", label: "Dallas-Fort Worth" },
+  { code: "JFK", label: "New York JFK" },
+  { code: "LAX", label: "Los Angeles" },
+  { code: "ORD", label: "Chicago O'Hare" },
+  { code: "PHX", label: "Phoenix" },
+  { code: "SEA", label: "Seattle" },
+  { code: "SFO", label: "San Francisco" },
+  { code: "SLC", label: "Salt Lake City" }
+];
+
+const nightOptions = [5, 7, 10, 14, 21, 28];
+
+const lodgingOptions = [
+  "rentals first",
+  "hotels",
+  "apartments for 2",
+  "group house rentals",
+  "best total value"
+];
+
+const interestOptions = [
+  "art · food · gardens",
+  "art · craft · coast",
+  "food · trains · architecture",
+  "gardens · landscape · quiet bases",
+  "relaxation · recharging · beautiful settings",
+  "bay · ocean views · food",
+  "rural escape · slow days",
+  "custom"
+];
+
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -116,6 +159,12 @@ function destinationMatchesInterests(destination: Destination, preferences: Trip
   });
 }
 
+function normalizeNights(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultTripPreferences.nights;
+  return Math.min(Math.max(Math.round(parsed), 1), 60);
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -171,6 +220,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingSnapshots, setLodgingSnapshots] =
     useState<StoredFareSnapshots>(readStoredLodgingSnapshots);
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
+  const [generatorRegion, setGeneratorRegion] = useState(allRegionsFilter);
+  const [customNightsOpen, setCustomNightsOpen] = useState(false);
+  const [customInterestsOpen, setCustomInterestsOpen] = useState(false);
   const [regionFilter, setRegionFilter] = useState(allRegionsFilter);
   const [transportFilter, setTransportFilter] = useState(allTransportFilter);
   const [scoreSort, setScoreSort] = useState<keyof Destination["fit"] | typeof noScoreSort>(
@@ -264,17 +316,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const checkingCount = checkingSlugs.size;
   const checkingLodgingCount = checkingLodgingSlugs.size;
-  const visibleCheckedCount = visibleDestinations.filter((destination) => {
-    const activePreferences = scenarioPreferences(destination.slug);
-    const tripWindow = tripWindowFor(destination, activePreferences);
-    return snapshots[snapshotKey(destination.slug, activePreferences, tripWindow)]?.status === "checked";
-  }).length;
-  const visibleUnavailableCount = visibleDestinations.filter((destination) => {
-    const activePreferences = scenarioPreferences(destination.slug);
-    const tripWindow = tripWindowFor(destination, activePreferences);
-    const snapshot = snapshots[snapshotKey(destination.slug, activePreferences, tripWindow)];
-    return snapshot && snapshot.status !== "checked";
-  }).length;
   const shownCount = Math.min(visibleCount, filteredDestinations.length);
   const hasMoreDestinations = visibleCount < filteredDestinations.length;
   const filtersActive =
@@ -295,7 +336,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   useEffect(() => {
     function syncPreferences() {
-      setPreferences(readTripPreferences());
+      const nextPreferences = readTripPreferences();
+      setPreferences(nextPreferences);
+      setCustomNightsOpen(!nightOptions.includes(nextPreferences.nights));
+      setCustomInterestsOpen(!interestOptions.includes(nextPreferences.interests));
     }
 
     syncPreferences();
@@ -306,6 +350,25 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       window.removeEventListener("storage", syncPreferences);
     };
   }, []);
+
+  const updateGeneratorPreferences = useCallback(
+    (next: Partial<TripPreferences>) => {
+      const nextPreferences = {
+        ...preferences,
+        ...next
+      };
+      const lodging = nextPreferences.lodging;
+      nextPreferences.departure = nextPreferences.departure.trim().toUpperCase();
+      nextPreferences.flightCount = Math.max(
+        normalizeFlightCount(nextPreferences.flightCount),
+        minimumFlightCountForLodging(lodging)
+      );
+      nextPreferences.nights = normalizeNights(nextPreferences.nights);
+      setPreferences(nextPreferences);
+      writeTripPreferences(nextPreferences);
+    },
+    [preferences]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -664,7 +727,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           promptKind: "more-in-region",
-          region: regionFilter === allRegionsFilter ? undefined : regionFilter,
+          region: generatorRegion === allRegionsFilter ? undefined : generatorRegion,
           preferences
         })
       });
@@ -682,11 +745,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     } finally {
       setSuggestingDestinations(false);
     }
-  }, [preferences, regionFilter]);
+  }, [generatorRegion, preferences]);
 
   const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
     setReviewingSuggestionId(id);
-    setSuggestionStatusMessage(action === "accept" ? "Adding destination idea..." : "Hiding suggestion...");
+    setSuggestionStatusMessage(action === "accept" ? "Adding destination idea..." : "Rejecting suggestion...");
 
     try {
       const response = await fetch("/api/destinations/suggestions", {
@@ -765,15 +828,203 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     );
   }
 
+  const selectedNightValue = nightOptions.includes(preferences.nights)
+    ? String(preferences.nights)
+    : "custom";
+  const selectedInterest =
+    !customInterestsOpen && interestOptions.includes(preferences.interests)
+      ? preferences.interests
+      : "custom";
+  const generatorFieldClass =
+    "mt-1 h-9 w-full rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-clay/45";
+  const libraryFieldClass =
+    "h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45";
+  const activityStatusMessage = checkingCount
+    ? `Checking airfare for ${checkingCount} ${checkingCount === 1 ? "trip" : "trips"}...`
+    : checkingLodgingCount
+      ? `Checking lodging for ${checkingLodgingCount} ${
+          checkingLodgingCount === 1 ? "trip" : "trips"
+        }...`
+      : [statusMessage, lodgingStatusMessage].filter(Boolean).join(" · ");
+
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3 text-xs text-ink/58">
+      <div className="mb-4 rounded-md border border-clay/20 bg-clay/[0.035] px-3 py-3 shadow-[0_10px_28px_rgb(112_62_38_/_0.08)]">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-clay">
+            <Sparkles size={15} aria-hidden="true" />
+            Idea Generator
+          </span>
+          {aiUsage ? (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+              {aiUsage.remaining}/{aiUsage.limit} left today
+            </span>
+          ) : null}
+        </div>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <MapPin size={14} className="text-clay/72" aria-hidden="true" />
+              Departure
+            </span>
+            <input
+              className={generatorFieldClass}
+              list="generator-departure-airports"
+              value={preferences.departure}
+              onChange={(event) => updateGeneratorPreferences({ departure: event.target.value })}
+            />
+            <datalist id="generator-departure-airports">
+              {airportOptions.map((airport) => (
+                <option
+                  key={airport.code}
+                  value={airport.code}
+                  label={`${airport.code} · ${airport.label}`}
+                />
+              ))}
+            </datalist>
+          </label>
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <Users size={14} className="text-clay/72" aria-hidden="true" />
+              Travelers
+            </span>
+            <input
+              className={generatorFieldClass}
+              type="number"
+              min={1}
+              max={8}
+              value={preferences.flightCount}
+              onChange={(event) =>
+                updateGeneratorPreferences({ flightCount: Number(event.target.value) })
+              }
+            />
+          </label>
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <CalendarDays size={14} className="text-clay/72" aria-hidden="true" />
+              Nights
+            </span>
+            <select
+              className={generatorFieldClass}
+              value={customNightsOpen ? "custom" : selectedNightValue}
+              onChange={(event) => {
+                if (event.target.value === "custom") {
+                  setCustomNightsOpen(true);
+                  return;
+                }
+                setCustomNightsOpen(false);
+                updateGeneratorPreferences({ nights: Number(event.target.value) });
+              }}
+            >
+              {nightOptions.map((nights) => (
+                <option key={nights} value={nights}>
+                  {tripLengthLabel(nights)}
+                </option>
+              ))}
+              <option value="custom">custom</option>
+            </select>
+            {customNightsOpen ? (
+              <input
+                className={`${generatorFieldClass} mt-2`}
+                type="number"
+                min={1}
+                max={60}
+                value={preferences.nights}
+                onChange={(event) =>
+                  updateGeneratorPreferences({ nights: Number(event.target.value) })
+                }
+              />
+            ) : null}
+          </label>
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <BedDouble size={14} className="text-clay/72" aria-hidden="true" />
+              Lodging
+            </span>
+            <select
+              className={generatorFieldClass}
+              value={preferences.lodging}
+              onChange={(event) => {
+                const lodging = event.target.value;
+                updateGeneratorPreferences({ lodging });
+              }}
+            >
+              {lodgingOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2 xl:col-span-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+              <Palette size={14} className="text-clay/72" aria-hidden="true" />
+              Interests
+            </span>
+            <select
+              className={generatorFieldClass}
+              value={selectedInterest}
+              onChange={(event) => {
+                if (event.target.value === "custom") {
+                  setCustomInterestsOpen(true);
+                  return;
+                }
+                setCustomInterestsOpen(false);
+                updateGeneratorPreferences({ interests: event.target.value });
+              }}
+            >
+              {interestOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            {selectedInterest === "custom" ? (
+              <input
+                className={`${generatorFieldClass} mt-2`}
+                value={preferences.interests}
+                onChange={(event) =>
+                  updateGeneratorPreferences({ interests: event.target.value })
+                }
+              />
+            ) : null}
+          </label>
+        </div>
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="grid min-w-44 gap-1 text-xs text-ink/58">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Region</span>
+            <select
+              value={generatorRegion}
+              onChange={(event) => setGeneratorRegion(event.target.value)}
+              className={libraryFieldClass}
+            >
+              <option value={allRegionsFilter}>all regions</option>
+              {regions.map((region) => (
+                <option key={region} value={region}>
+                  {region}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void suggestDestinations()}
+            disabled={suggestingDestinations || aiUsage?.remaining === 0}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-clay bg-clay px-3 text-xs font-semibold text-white transition hover:bg-clay/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/5 disabled:text-ink/30"
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/45 px-3 py-2 text-xs text-ink/58">
         <label className="grid min-w-36 gap-1">
-          <span className="font-semibold uppercase tracking-wide text-ink/38">Region</span>
+          <span className="font-semibold uppercase tracking-wide text-ink/38">Library region</span>
           <select
             value={regionFilter}
             onChange={(event) => setRegionFilter(event.target.value)}
-            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+            className={libraryFieldClass}
           >
             <option value={allRegionsFilter}>all regions</option>
             {regions.map((region) => (
@@ -788,7 +1039,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           <select
             value={transportFilter}
             onChange={(event) => setTransportFilter(event.target.value)}
-            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+            className={libraryFieldClass}
           >
             <option value={allTransportFilter}>all transport</option>
             {transportModes.map((mode) => (
@@ -805,7 +1056,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             onChange={(event) =>
               setScoreSort(event.target.value as keyof Destination["fit"] | typeof noScoreSort)
             }
-            className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+            className={libraryFieldClass}
           >
             <option value={noScoreSort}>original order</option>
             <option value="art">art</option>
@@ -828,22 +1079,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             Clear
           </button>
         ) : null}
-        <span className="ml-auto inline-flex flex-col items-end gap-0.5">
-          <button
-            type="button"
-            onClick={() => void suggestDestinations()}
-            disabled={suggestingDestinations || aiUsage?.remaining === 0}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-harbor/30 bg-white px-3 text-xs font-semibold text-harbor transition hover:border-harbor hover:bg-harbor/5 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/5 disabled:text-ink/30"
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
-          </button>
-          {aiUsage ? (
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
-              {aiUsage.remaining}/{aiUsage.limit} suggestions left today
-            </span>
-          ) : null}
-        </span>
       </div>
 
       {focusedSavedSearch ? (
@@ -915,7 +1150,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                       disabled={reviewingSuggestionId === suggestion.id}
                       className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/58 transition hover:border-ink/25 hover:text-ink disabled:cursor-wait disabled:opacity-60"
                     >
-                      Hide
+                      Reject
                     </button>
                   </div>
                 </article>
@@ -925,21 +1160,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2 text-xs text-ink/58">
-        <span>
-          {checkingCount
-            ? `Checking airfare for ${checkingCount} ${checkingCount === 1 ? "trip" : "trips"}...`
-            : checkingLodgingCount
-              ? `Checking lodging for ${checkingLodgingCount} ${
-              checkingLodgingCount === 1 ? "trip" : "trips"
-                }...`
-            : statusMessage ||
-              `Use Check now on any card to refresh prices · ${visibleCheckedCount} fare${
-                visibleCheckedCount === 1 ? "" : "s"
-              } checked · ${visibleUnavailableCount} unavailable`}
-          {lodgingStatusMessage ? ` · ${lodgingStatusMessage}` : ""}
-        </span>
-      </div>
+      {activityStatusMessage ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2 text-xs text-ink/58">
+          <span>{activityStatusMessage}</span>
+        </div>
+      ) : null}
 
       {visibleDestinations.length ? (
         <div className="mb-5 flex flex-wrap items-center justify-end gap-2 text-xs text-ink/58">

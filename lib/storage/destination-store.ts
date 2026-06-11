@@ -4,6 +4,7 @@ import {
   destinationPhotoSearchUrlFromDestination,
   fallbackPhotoForRegion
 } from "@/lib/destination-photos";
+import { withDiningFallback } from "@/lib/dining-estimates";
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import type { Destination } from "@/lib/types";
 
@@ -33,7 +34,7 @@ function moodLabelFromDestination(destination: Destination) {
   return (destination.tripType.split(/[,.]/)[0]?.trim().toLowerCase() || "slow travel").slice(0, 42);
 }
 
-function withPhotoFallback(destination: Destination): Destination {
+function withFallbacks(destination: Destination): Destination {
   const seedPhoto = seedBySlug.get(destination.slug)?.visualTheme.photoUrl;
   const moodLabel = moodLabelFromDestination(destination);
   const existingPhoto = destination.visualTheme.photoUrl;
@@ -44,7 +45,7 @@ function withPhotoFallback(destination: Destination): Destination {
       ? destinationPhotoSearchUrlFromDestination(destination, moodLabel)
       : existingPhoto || fallbackPhoto);
 
-  return {
+  return withDiningFallback({
     ...destination,
     visualTheme: {
       ...destination.visualTheme,
@@ -52,12 +53,12 @@ function withPhotoFallback(destination: Destination): Destination {
       moodLabel,
       photoPosition: destination.visualTheme.photoPosition ?? "center"
     }
-  };
+  });
 }
 
 function parseDestination(row: DestinationRow): Destination | null {
   try {
-    return withPhotoFallback(JSON.parse(row.payload_json) as Destination);
+    return withFallbacks(JSON.parse(row.payload_json) as Destination);
   } catch {
     return null;
   }
@@ -91,7 +92,7 @@ async function ensureSeedDestinations(db: D1Database) {
 
 export async function listDestinationCandidates(): Promise<Destination[]> {
   const db = await getD1Database();
-  if (!db) return seedDestinations.map(withPhotoFallback);
+  if (!db) return seedDestinations.map(withFallbacks);
 
   try {
     await ensureSeedDestinations(db);
@@ -102,9 +103,9 @@ export async function listDestinationCandidates(): Promise<Destination[]> {
       .map(parseDestination)
       .filter((destination): destination is Destination => Boolean(destination));
 
-    return destinations.length ? destinations : seedDestinations.map(withPhotoFallback);
+    return destinations.length ? destinations : seedDestinations.map(withFallbacks);
   } catch {
-    return seedDestinations.map(withPhotoFallback);
+    return seedDestinations.map(withFallbacks);
   }
 }
 
@@ -113,7 +114,7 @@ export async function writeDestinationCandidate(destination: Destination) {
   if (!db) return false;
 
   const timestamp = nowIso();
-  const destinationWithPhoto = withPhotoFallback(destination);
+  const destinationWithPhoto = withFallbacks(destination);
   const result = await db
     .prepare(
       `INSERT INTO destination_candidates (

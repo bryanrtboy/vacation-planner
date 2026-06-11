@@ -8,6 +8,8 @@ export type SuggestDestinationsInput = {
   promptKind: DestinationSuggestion["promptKind"];
   region?: string;
   parentName?: string;
+  draftSuggestions: SuggestionMemoryItem[];
+  rejectedSuggestions: SuggestionMemoryItem[];
   existingDestinations: {
     name: string;
     region: string;
@@ -23,6 +25,12 @@ export type SuggestDestinationsInput = {
     lodging: string;
     interests: string;
   };
+};
+
+export type SuggestionMemoryItem = {
+  name: string;
+  region?: string;
+  reason?: string;
 };
 
 export type SuggestedDestinationPayload = DestinationSuggestion["payload"];
@@ -200,6 +208,7 @@ Hard rules:
     input.preferences.nights
   } nights.
 - Avoid duplicating existing destinations by name.
+- Do not suggest anything from the existing, draft, or rejected lists. Avoid nearby equivalents and obvious duplicates too.
 - Optimize for thoughtful, high-signal recommendations: good art/museum/gallery potential, compelling landscape or gardens, walkable neighborhoods, food/market appeal, and a few less-obvious or off-the-beaten-path reasons the place belongs on the list.
 - Prefer distinctive places over generic famous cities when fit is otherwise similar.
 - Include a concise "moodLabel" of 2 to 5 lowercase words, like "coastal tiles", "porticoes and trains", or "gardens and coast".
@@ -212,6 +221,12 @@ ${input.parentName ? `Use ${input.parentName} as the comparison anchor.` : ""}
 
 Existing destinations:
 ${JSON.stringify(input.existingDestinations, null, 2)}
+
+Draft suggestions already waiting for review:
+${JSON.stringify(input.draftSuggestions, null, 2)}
+
+Rejected suggestions to avoid:
+${JSON.stringify(input.rejectedSuggestions, null, 2)}
 
 JSON shape:
 {

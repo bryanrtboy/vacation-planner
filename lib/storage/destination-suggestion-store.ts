@@ -80,6 +80,28 @@ export async function listDestinationSuggestions(
     .filter((suggestion): suggestion is DestinationSuggestion => Boolean(suggestion));
 }
 
+export async function listDestinationSuggestionsByStatuses(
+  statuses: DestinationSuggestionStatus[]
+): Promise<DestinationSuggestion[]> {
+  const db = await getD1Database();
+  if (!db || !statuses.length) return [];
+
+  const placeholders = statuses.map((_, index) => `?${index + 1}`).join(", ");
+  const rows = await db
+    .prepare(
+      `SELECT * FROM destination_suggestions
+       WHERE status IN (${placeholders})
+       ORDER BY updated_at DESC`
+    )
+    .bind(...statuses)
+    .all<DestinationSuggestionRow>()
+    .catch(() => ({ results: [] }));
+
+  return rows.results
+    .map(rowToSuggestion)
+    .filter((suggestion): suggestion is DestinationSuggestion => Boolean(suggestion));
+}
+
 export async function destinationSuggestionStorageState(): Promise<DestinationSuggestionStorageState> {
   const db = await getD1Database();
   if (!db) {

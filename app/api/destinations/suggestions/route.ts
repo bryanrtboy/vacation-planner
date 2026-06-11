@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { suggestDestinationsWithGemini } from "@/lib/ai/gemini";
 import { destinationPhotoSearchUrl, fallbackPhotoForRegion } from "@/lib/destination-photos";
+import { fallbackDiningEstimate } from "@/lib/dining-estimates";
 import {
   getUsageState,
   releaseReservedChecks,
@@ -11,6 +12,7 @@ import {
   destinationSuggestionStorageState,
   getDestinationSuggestion,
   listDestinationSuggestions,
+  listDestinationSuggestionsByStatuses,
   updateDestinationSuggestionStatus,
   writeDestinationSuggestions
 } from "@/lib/storage/destination-suggestion-store";
@@ -44,6 +46,37 @@ function compactHash(value: string) {
   return (hash >>> 0).toString(36);
 }
 
+function normalizedIdeaName(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/\b(the|and|city|region|coast|area)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function ideaMatchesKnown(candidate: string, known: Set<string>) {
+  const normalized = normalizedIdeaName(candidate);
+  const slug = slugify(candidate);
+  if (!normalized || known.has(normalized) || known.has(slug)) return true;
+
+  return [...known].some((item) => {
+    if (item.length < 5 || normalized.length < 5) return false;
+    return normalized.includes(item) || item.includes(normalized);
+  });
+}
+
+function memoryItemFromSuggestion(suggestion: DestinationSuggestion) {
+  return {
+    name: suggestion.name,
+    region: suggestion.region ?? suggestion.payload.region,
+    reason: suggestion.payload.whyItFits
+  };
+}
+
 function cleanMoodLabel(value?: string) {
   const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase();
   if (!normalized || normalized === "ai suggested" || normalized === "suggested idea") return undefined;
@@ -75,17 +108,7 @@ function diningFromSuggestion(suggestion: DestinationSuggestion): Destination["d
   const retrievedAt = new Date().toISOString();
 
   if (!estimate) {
-    return {
-      min: 0,
-      max: 0,
-      currency: "USD",
-      label: "Dining not estimated",
-      provider: "Suggested idea",
-      sampledDates: "Not checked",
-      retrievedAt,
-      sourceDetail: "Dining has not been estimated for this suggested destination yet.",
-      sourceKind: "unavailable"
-    };
+    return fallbackDiningEstimate(candidateFromSuggestionShell(suggestion));
   }
 
   const min = Math.max(1, Math.round(estimate.minDailyUsdForTwo));
@@ -101,6 +124,99 @@ function diningFromSuggestion(suggestion: DestinationSuggestion): Destination["d
     retrievedAt,
     sourceDetail: estimate.rationale,
     sourceKind: "mock"
+  };
+}
+
+function candidateFromSuggestionShell(suggestion: DestinationSuggestion): Destination {
+  const region = suggestion.region ?? suggestion.payload.region;
+
+  return {
+    slug: suggestion.destinationSlug ?? slugify(suggestion.name),
+    name: suggestion.name,
+    region,
+    mapQuery: suggestion.name,
+    tripType: suggestion.payload.lodgingAngle,
+    fitSummary: suggestion.payload.whyItFits,
+    caveat: suggestion.payload.tradeoffs,
+    bestMonths: suggestion.payload.bestMonths,
+    avoid: suggestion.payload.tradeoffs,
+    visualTheme: {
+      accentName: "suggested idea",
+      bannerClass: "",
+      photoUrl: "",
+      heroOverlayClass: "",
+      cardClass: "",
+      panelClass: "",
+      summaryClass: "",
+      highlightClass: "",
+      highlightInfoClass: "",
+      buttonClass: "",
+      watchActiveClass: "",
+      textClass: "",
+      moodLabel: moodLabelFromSuggestion(suggestion.payload)
+    },
+    flightSearch: {
+      origin: defaultTripPreferences.departure,
+      destination: suggestion.name,
+      destinationAirports: suggestion.payload.airportTargets,
+      departDate: "2026-10-15",
+      returnDate: "2026-10-22"
+    },
+    transport: "Car useful",
+    transportNote: suggestion.payload.tradeoffs,
+    monthlyPotential: "Selective",
+    sharedRentalPotential: "Possible",
+    fit: { art: 6, gardens: 6, food: 6, landscape: 6 },
+    airfare: {
+      min: 0,
+      max: 0,
+      currency: "USD",
+      label: "",
+      provider: "",
+      sampledDates: "",
+      retrievedAt: "",
+      sourceKind: "unavailable"
+    },
+    lodging: {
+      hotel3Star: {
+        min: 0,
+        max: 0,
+        currency: "USD",
+        label: "",
+        provider: "",
+        sampledDates: "",
+        retrievedAt: "",
+        sourceKind: "unavailable"
+      },
+      rental: {
+        min: 0,
+        max: 0,
+        currency: "USD",
+        label: "",
+        provider: "",
+        sampledDates: "",
+        retrievedAt: "",
+        sourceKind: "unavailable"
+      }
+    },
+    dining: {
+      min: 0,
+      max: 0,
+      currency: "USD",
+      label: "",
+      provider: "",
+      sampledDates: "",
+      retrievedAt: "",
+      sourceKind: "unavailable"
+    },
+    highlights: [
+      ...suggestion.payload.interests,
+      ...(suggestion.payload.artNotes ?? []),
+      ...(suggestion.payload.foodNotes ?? []),
+      ...(suggestion.payload.landscapeNotes ?? []),
+      ...(suggestion.payload.offbeatFinds ?? [])
+    ],
+    links: []
   };
 }
 
@@ -318,6 +434,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    const suggestionMemory = await listDestinationSuggestionsByStatuses([
+      "draft",
+      "accepted",
+      "hidden"
+    ]);
+    const draftSuggestions = suggestionMemory
+      .filter((suggestion) => suggestion.status === "draft")
+      .map(memoryItemFromSuggestion)
+      .slice(0, 20);
+    const rejectedSuggestions = suggestionMemory
+      .filter((suggestion) => suggestion.status === "hidden")
+      .map(memoryItemFromSuggestion)
+      .slice(0, 40);
     const existingDestinations = destinations.map((destination) => ({
       name: destination.name,
       region: destination.region,
@@ -336,10 +465,40 @@ export async function POST(request: Request) {
       region,
       parentName: parent?.name,
       preferences,
+      draftSuggestions,
+      rejectedSuggestions,
       existingDestinations
     });
     const requestHash = compactHash(requestKey);
-    const suggestions = result.suggestions.map((suggestion): DestinationSuggestion => {
+    const knownIdeas = new Set<string>();
+    for (const destination of destinations) {
+      knownIdeas.add(normalizedIdeaName(destination.name));
+      knownIdeas.add(slugify(destination.name));
+      knownIdeas.add(destination.slug);
+    }
+    for (const suggestion of suggestionMemory) {
+      knownIdeas.add(normalizedIdeaName(suggestion.name));
+      if (suggestion.destinationSlug) knownIdeas.add(suggestion.destinationSlug);
+      knownIdeas.add(slugify(suggestion.name));
+    }
+
+    const uniqueSuggestions = result.suggestions.filter((suggestion) => {
+      if (ideaMatchesKnown(suggestion.name, knownIdeas)) return false;
+      knownIdeas.add(normalizedIdeaName(suggestion.name));
+      knownIdeas.add(slugify(suggestion.name));
+      return true;
+    });
+
+    if (!uniqueSuggestions.length) {
+      return NextResponse.json({
+        usage: await getUsageState(aiUsageService),
+        storageReady: true,
+        suggestions: await listDestinationSuggestions("draft"),
+        message: "No new destination ideas found. Rejected and existing ideas were skipped."
+      });
+    }
+
+    const suggestions = uniqueSuggestions.map((suggestion): DestinationSuggestion => {
       const suggestionSlug = slugify(suggestion.name);
       return {
         id: `${requestHash}-${suggestionSlug}`,
@@ -408,7 +567,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({
       usage: await getUsageState(aiUsageService),
       suggestions: await listDestinationSuggestions("draft"),
-      message: "Suggestion hidden."
+      message: "Suggestion rejected."
     });
   }
 
