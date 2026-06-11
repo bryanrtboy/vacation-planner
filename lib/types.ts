@@ -1,4 +1,5 @@
 export type TripLength = "7-nights" | "1-month";
+export type TripSeason = "recommended" | "spring" | "fall" | "saved";
 
 export type TripPreferences = {
   departure: string;
@@ -6,6 +7,9 @@ export type TripPreferences = {
   nights: number;
   lodging: string;
   interests: string;
+  travelSeason?: TripSeason;
+  departDate?: string;
+  returnDate?: string;
 };
 
 export type TripWindow = {

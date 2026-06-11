@@ -10,7 +10,14 @@ import {
   recommendedTripWindow,
   tripPreferencesChangedEvent
 } from "@/lib/trip-preferences";
-import type { Destination, DestinationSuggestion, UsageState, WatchRefreshResult } from "@/lib/types";
+import type {
+  Destination,
+  DestinationSuggestion,
+  SavedSearchSummary,
+  TripWindow,
+  UsageState,
+  WatchRefreshResult
+} from "@/lib/types";
 import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
@@ -173,6 +180,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
   const [aiUsage, setAiUsage] = useState<UsageState | null>(null);
   const [suggestions, setSuggestions] = useState<DestinationSuggestion[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
+  const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
   const [suggestingDestinations, setSuggestingDestinations] = useState(false);
@@ -213,45 +222,39 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     () => filteredDestinations.slice(0, visibleCount),
     [filteredDestinations, visibleCount]
   );
-  const visibleDestinationSlugs = useMemo(
-    () => visibleDestinations.map((destination) => destination.slug),
-    [visibleDestinations]
+  const scenarioPreferences = useCallback(
+    (slug: string) => ({
+      ...preferences,
+      ...scenarioOverrides[slug]
+    }),
+    [preferences, scenarioOverrides]
   );
-  const tripWindows = useMemo(
-    () =>
-      Object.fromEntries(
-        destinations.map((destination) => [
-          destination.slug,
-          recommendedTripWindow(destination, preferences.nights)
-        ])
-      ),
-    [destinations, preferences.nights]
+  const tripWindowFor = useCallback(
+    (destination: Destination, activePreferences: TripPreferences) =>
+      recommendedTripWindow(destination, activePreferences),
+    []
   );
   const snapshotKey = useCallback(
-    (slug: string) => {
-      const tripWindow = tripWindows[slug];
-      return `${slug}:${preferences.departure}:${preferences.flightCount}:${tripWindow?.departDate}:${tripWindow?.returnDate}`;
-    },
-    [preferences.departure, preferences.flightCount, tripWindows]
-  );
-  const lodgingMode = useMemo(
-    () => lodgingModeFromPreference(preferences.lodging),
-    [preferences.lodging]
+    (slug: string, activePreferences: TripPreferences, tripWindow: { departDate: string; returnDate: string }) =>
+      `${slug}:${activePreferences.departure}:${activePreferences.flightCount}:${tripWindow.departDate}:${tripWindow.returnDate}`,
+    []
   );
   const lodgingKey = useCallback(
-    (destination: Destination) => {
-      const tripWindow = tripWindows[destination.slug];
-      return lodgingSnapshotKey(destination, tripWindow, lodgingMode);
-    },
-    [lodgingMode, tripWindows]
+    (destination: Destination, activePreferences: TripPreferences, tripWindow: TripWindow) =>
+      lodgingSnapshotKey(destination, tripWindow, lodgingModeFromPreference(activePreferences.lodging)),
+    []
   );
   const checkingCount = checkingSlugs.size;
   const checkingLodgingCount = checkingLodgingSlugs.size;
-  const visibleCheckedCount = visibleDestinationSlugs.filter(
-    (slug) => snapshots[snapshotKey(slug)]?.status === "checked"
-  ).length;
-  const visibleUnavailableCount = visibleDestinationSlugs.filter((slug) => {
-    const snapshot = snapshots[snapshotKey(slug)];
+  const visibleCheckedCount = visibleDestinations.filter((destination) => {
+    const activePreferences = scenarioPreferences(destination.slug);
+    const tripWindow = tripWindowFor(destination, activePreferences);
+    return snapshots[snapshotKey(destination.slug, activePreferences, tripWindow)]?.status === "checked";
+  }).length;
+  const visibleUnavailableCount = visibleDestinations.filter((destination) => {
+    const activePreferences = scenarioPreferences(destination.slug);
+    const tripWindow = tripWindowFor(destination, activePreferences);
+    const snapshot = snapshots[snapshotKey(destination.slug, activePreferences, tripWindow)];
     return snapshot && snapshot.status !== "checked";
   }).length;
   const shownCount = Math.min(visibleCount, filteredDestinations.length);
@@ -260,6 +263,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     regionFilter !== allRegionsFilter ||
     transportFilter !== allTransportFilter ||
     scoreSort !== noScoreSort;
+  const refreshSavedSearches = useCallback(async () => {
+    try {
+      const response = await fetch("/api/saved-searches");
+      if (!response.ok) return;
+      const data = (await response.json()) as { savedSearches?: SavedSearchSummary[] };
+      setSavedSearches(data.savedSearches ?? []);
+    } catch {
+      // Saved searches are an optional D1 enhancement.
+    }
+  }, []);
 
   useEffect(() => {
     function syncPreferences() {
@@ -272,6 +285,27 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       window.removeEventListener(tripPreferencesChangedEvent, syncPreferences);
       window.removeEventListener("storage", syncPreferences);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSavedSearches() {
+      try {
+        const response = await fetch("/api/saved-searches");
+        if (!response.ok) return;
+        const data = (await response.json()) as { savedSearches?: SavedSearchSummary[] };
+        if (!cancelled) setSavedSearches(data.savedSearches ?? []);
+      } catch {
+        // Saved searches are an optional D1 enhancement.
+      }
+    }
+
+    void loadSavedSearches();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -318,7 +352,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         const nextSnapshots = { ...readStoredSnapshots() };
         for (const result of data.results) {
-          nextSnapshots[snapshotKey(result.destinationSlug)] = result;
+          const destination = destinations.find((item) => item.slug === result.destinationSlug);
+          if (!destination) continue;
+          const tripWindow = tripWindowFor(destination, preferences);
+          nextSnapshots[snapshotKey(result.destinationSlug, preferences, tripWindow)] = result;
         }
 
         writeStoredSnapshots(nextSnapshots);
@@ -333,7 +370,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       cancelled = true;
     };
-  }, [destinationSlugs, preferences, snapshotKey]);
+  }, [destinationSlugs, destinations, preferences, snapshotKey, tripWindowFor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,7 +393,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         for (const result of data.results) {
           const destination = destinations.find((item) => item.slug === result.destinationSlug);
           if (!destination) continue;
-          nextSnapshots[lodgingKey(destination)] = result;
+          const tripWindow = tripWindowFor(destination, preferences);
+          nextSnapshots[lodgingKey(destination, preferences, tripWindow)] = result;
         }
 
         writeStoredLodgingSnapshots(nextSnapshots);
@@ -371,10 +409,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       cancelled = true;
     };
-  }, [destinationSlugs, destinations, lodgingKey, preferences]);
+  }, [destinationSlugs, destinations, lodgingKey, preferences, tripWindowFor]);
 
   const refreshFareSnapshots = useCallback(
-    async (slugs: string[], options: { manual?: boolean } = {}) => {
+    async (
+      slugs: string[],
+      options: { manual?: boolean } = {},
+      activePreferences: TripPreferences = preferences
+    ) => {
       if (!slugs.length) return;
 
       setCheckingSlugs((current) => new Set([...current, ...slugs]));
@@ -384,7 +426,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const response = await fetch("/api/airfare/snapshots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferences, refresh: Boolean(options.manual), slugs })
+          body: JSON.stringify({ preferences: activePreferences, refresh: Boolean(options.manual), slugs })
         });
 
         if (!response.ok) throw new Error("Unable to refresh airfare snapshots.");
@@ -394,12 +436,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         setUsage(data.usage);
 
         for (const result of data.results) {
-          nextSnapshots[snapshotKey(result.destinationSlug)] = result;
+          const destination = destinations.find((item) => item.slug === result.destinationSlug);
+          if (!destination) continue;
+          const tripWindow = tripWindowFor(destination, activePreferences);
+          nextSnapshots[snapshotKey(result.destinationSlug, activePreferences, tripWindow)] = result;
         }
 
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
         setLodgingUsage(data.usage);
+        void refreshSavedSearches();
         setStatusMessage(
           data.results.some((result) => result.status === "checked")
             ? "Airfare check complete."
@@ -410,7 +456,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           ...readStoredSnapshots(),
           ...Object.fromEntries(
             Object.entries(unavailableSnapshots(slugs, "Unable to check airfare right now.")).map(
-              ([slug, result]) => [snapshotKey(slug), result]
+              ([slug, result]) => {
+                const destination = destinations.find((item) => item.slug === slug);
+                const tripWindow = destination
+                  ? tripWindowFor(destination, activePreferences)
+                  : { departDate: "", returnDate: "" };
+                return [snapshotKey(slug, activePreferences, tripWindow), result];
+              }
             )
           )
         };
@@ -425,11 +477,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [preferences, snapshotKey]
+    [destinations, preferences, refreshSavedSearches, snapshotKey, tripWindowFor]
   );
 
   const refreshLodgingSnapshots = useCallback(
-    async (slugs: string[], options: { manual?: boolean } = {}) => {
+    async (
+      slugs: string[],
+      options: { manual?: boolean } = {},
+      activePreferences: TripPreferences = preferences
+    ) => {
       if (!slugs.length) return;
 
       setCheckingLodgingSlugs((current) => new Set([...current, ...slugs]));
@@ -439,7 +495,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const response = await fetch("/api/lodging/snapshots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferences, refresh: Boolean(options.manual), slugs })
+          body: JSON.stringify({ preferences: activePreferences, refresh: Boolean(options.manual), slugs })
         });
 
         if (!response.ok) throw new Error("Unable to refresh lodging snapshots.");
@@ -452,11 +508,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         for (const result of data.results) {
           const destination = destinations.find((item) => item.slug === result.destinationSlug);
           if (!destination) continue;
-          nextSnapshots[lodgingKey(destination)] = result;
+          const tripWindow = tripWindowFor(destination, activePreferences);
+          nextSnapshots[lodgingKey(destination, activePreferences, tripWindow)] = result;
         }
 
         writeStoredLodgingSnapshots(nextSnapshots);
         setLodgingSnapshots(nextSnapshots);
+        void refreshSavedSearches();
         setLodgingStatusMessage(
           data.results.some((result) => result.status === "checked")
             ? "Lodging check complete."
@@ -472,7 +530,85 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [destinations, lodgingKey, preferences]
+    [destinations, lodgingKey, preferences, refreshSavedSearches, tripWindowFor]
+  );
+
+  const hydrateScenarioSnapshots = useCallback(
+    async (destination: Destination, activePreferences: TripPreferences) => {
+      try {
+        const [fareResponse, lodgingResponse] = await Promise.all([
+          fetch("/api/airfare/snapshots", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              preferences: activePreferences,
+              refresh: false,
+              slugs: [destination.slug]
+            })
+          }),
+          fetch("/api/lodging/snapshots", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              preferences: activePreferences,
+              refresh: false,
+              slugs: [destination.slug]
+            })
+          })
+        ]);
+        const tripWindow = tripWindowFor(destination, activePreferences);
+
+        if (fareResponse.ok) {
+          const data = (await fareResponse.json()) as SnapshotResponse;
+          setUsage(data.usage);
+          if (data.results.length) {
+            const nextSnapshots = { ...readStoredSnapshots() };
+            for (const result of data.results) {
+              nextSnapshots[snapshotKey(result.destinationSlug, activePreferences, tripWindow)] = result;
+            }
+            writeStoredSnapshots(nextSnapshots);
+            setSnapshots(nextSnapshots);
+          }
+        }
+
+        if (lodgingResponse.ok) {
+          const data = (await lodgingResponse.json()) as SnapshotResponse;
+          setLodgingUsage(data.usage);
+          setUsage(data.usage);
+          if (data.results.length) {
+            const nextSnapshots = { ...readStoredLodgingSnapshots() };
+            for (const result of data.results) {
+              nextSnapshots[lodgingKey(destination, activePreferences, tripWindow)] = result;
+            }
+            writeStoredLodgingSnapshots(nextSnapshots);
+            setLodgingSnapshots(nextSnapshots);
+          }
+        }
+      } catch {
+        // Scenario edits can still show unchecked state when D1 is unavailable.
+      }
+    },
+    [lodgingKey, snapshotKey, tripWindowFor]
+  );
+
+  const updateCardScenario = useCallback(
+    (destination: Destination, nextPreferences: TripPreferences) => {
+      setScenarioOverrides((current) => ({
+        ...current,
+        [destination.slug]: {
+          departure: nextPreferences.departure,
+          flightCount: nextPreferences.flightCount,
+          nights: nextPreferences.nights,
+          lodging: nextPreferences.lodging,
+          interests: nextPreferences.interests,
+          travelSeason: nextPreferences.travelSeason,
+          departDate: nextPreferences.departDate,
+          returnDate: nextPreferences.returnDate
+        }
+      }));
+      void hydrateScenarioSnapshots(destination, nextPreferences);
+    },
+    [hydrateScenarioSnapshots]
   );
 
   const suggestDestinations = useCallback(async () => {
@@ -690,24 +826,38 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
       {visibleDestinations.length ? (
         <div className="grid gap-4 md:grid-cols-2">
-          {visibleDestinations.map((destination) => (
-            <DestinationCard
-              key={destination.slug}
-              destination={destination}
-              fareSnapshot={snapshots[snapshotKey(destination.slug)]}
-              lodgingMode={lodgingMode}
-              lodgingSnapshot={lodgingSnapshots[lodgingKey(destination)]}
-              isCheckingFare={checkingSlugs.has(destination.slug)}
-              isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
-              onCheckFare={() => void refreshFareSnapshots([destination.slug], { manual: true })}
-              onCheckLodging={() =>
-                void refreshLodgingSnapshots([destination.slug], { manual: true })
-              }
-              usage={usage ?? lodgingUsage}
-              preferences={preferences}
-              tripWindow={tripWindows[destination.slug]}
-            />
-          ))}
+          {visibleDestinations.map((destination) => {
+            const activePreferences = scenarioPreferences(destination.slug);
+            const tripWindow = tripWindowFor(destination, activePreferences);
+            const lodgingMode = lodgingModeFromPreference(activePreferences.lodging);
+            const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
+            const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
+
+            return (
+              <DestinationCard
+                key={destination.slug}
+                destination={destination}
+                fareSnapshot={snapshots[fareKey]}
+                lodgingMode={lodgingMode}
+                lodgingSnapshot={lodgingSnapshots[activeLodgingKey]}
+                isCheckingFare={checkingSlugs.has(destination.slug)}
+                isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
+                onCheckFare={() =>
+                  void refreshFareSnapshots([destination.slug], { manual: true }, activePreferences)
+                }
+                onCheckLodging={() =>
+                  void refreshLodgingSnapshots([destination.slug], { manual: true }, activePreferences)
+                }
+                onScenarioChange={(nextPreferences) =>
+                  updateCardScenario(destination, nextPreferences)
+                }
+                usage={usage ?? lodgingUsage}
+                preferences={activePreferences}
+                tripWindow={tripWindow}
+                savedSearches={savedSearches}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="rounded-md border border-ink/8 bg-white/60 px-4 py-8 text-center text-sm font-medium text-ink/54">

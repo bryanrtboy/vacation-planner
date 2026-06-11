@@ -36,7 +36,7 @@ function watchedSearchForDestination(
   destination: Destination,
   preferences: TripPreferences
 ): WatchedSearch {
-  const tripWindow = recommendedTripWindow(destination, preferences.nights);
+  const tripWindow = recommendedTripWindow(destination, preferences);
 
   return {
     id: `${destination.slug}-card-snapshot`,

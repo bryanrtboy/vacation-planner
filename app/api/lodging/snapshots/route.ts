@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     .map((slug) => destinationBySlug.get(slug))
     .filter((destination): destination is Destination => Boolean(destination))
     .map((destination) => {
-      const tripWindow = recommendedTripWindow(destination, preferences.nights);
+      const tripWindow = recommendedTripWindow(destination, preferences);
       return {
         destination,
         mode,

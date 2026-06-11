@@ -10,11 +10,12 @@ import {
   Star,
 } from "lucide-react";
 import { googleFlightsSearchUrl } from "@/lib/flights/links";
-import type { LodgingMode } from "@/lib/lodging/modes";
-import { tripLengthLabel } from "@/lib/trip-preferences";
+import { lodgingModes, type LodgingMode, type LodgingModeId } from "@/lib/lodging/modes";
+import { tripLengthLabel, tripSeasonOptions } from "@/lib/trip-preferences";
 import type {
   Destination,
   PriceRange,
+  SavedSearchSummary,
   TripPreferences,
   TripWindow,
   UsageState,
@@ -57,32 +58,6 @@ function mapsUrl(destination: Destination) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     destination.mapQuery
   )}`;
-}
-
-function bookingUrl(
-  sourceUrl: string | undefined,
-  tripWindow: TripWindow,
-  options: { adults?: number; hotelClass?: number } = {}
-) {
-  if (!sourceUrl) return undefined;
-
-  try {
-    const url = new URL(sourceUrl);
-    if (!url.hostname.includes("booking.com")) return sourceUrl;
-    const adults = options.adults ?? 2;
-
-    url.searchParams.set("checkin", tripWindow.departDate);
-    url.searchParams.set("checkout", tripWindow.returnDate);
-    url.searchParams.set("group_adults", String(adults));
-    url.searchParams.set("no_rooms", "1");
-    url.searchParams.set("group_children", "0");
-    if (options.hotelClass) {
-      url.searchParams.set("nflt", `class=${options.hotelClass}`);
-    }
-    return url.toString();
-  } catch {
-    return sourceUrl;
-  }
 }
 
 function priceLabel(range: { min: number; max: number }, suffix: string) {
@@ -139,16 +114,13 @@ function rangeMidpoint(range: { min: number; max: number }) {
 }
 
 function lodgingCostEstimate(
-  destination: Destination,
-  nights: number,
   lodgingSnapshot?: WatchRefreshResult
 ) {
   if (lodgingSnapshot?.status === "checked" && lodgingSnapshot.currentRange) {
     return rangeMidpoint(lodgingSnapshot.currentRange);
   }
 
-  const nightlyMidpoint = rangeMidpoint(destination.lodging.rental);
-  return typeof nightlyMidpoint === "number" ? nightlyMidpoint * nights : undefined;
+  return undefined;
 }
 
 function diningCostEstimate(destination: Destination, nights: number) {
@@ -172,7 +144,7 @@ function tripCostSummary(
   isCheckingLodging?: boolean
 ) {
   const airfareCost = airfare ? rangeMidpoint(airfare) : undefined;
-  const lodgingCost = lodgingCostEstimate(destination, nights, lodgingSnapshot);
+  const lodgingCost = lodgingCostEstimate(lodgingSnapshot);
   const diningCost = diningCostEstimate(destination, nights);
   const knownCosts = [airfareCost, lodgingCost, diningCost].filter(
     (value): value is number => typeof value === "number"
@@ -261,31 +233,6 @@ function uncheckedAirfare(
   };
 }
 
-function stayPrice(price: PriceRange, nights: number): PriceRange {
-  if (price.max <= 0) return price;
-
-  return {
-    ...price,
-    label: `${unitPriceLabel(price, "/night")} · ${moneyLabel(price.min * nights)}-${moneyLabel(
-      price.max * nights
-    )} for ${tripLengthLabel(nights)}`
-  };
-}
-
-function staySearchPrice(
-  price: PriceRange,
-  nights: number,
-  tripWindow: TripWindow,
-  options: { fallbackSourceUrl?: string; hotelClass?: number } = {}
-): PriceRange {
-  return {
-    ...stayPrice(price, nights),
-    sourceUrl: bookingUrl(price.sourceUrl ?? options.fallbackSourceUrl, tripWindow, {
-      hotelClass: options.hotelClass
-    })
-  };
-}
-
 function diningPrice(price: PriceRange, nights: number): PriceRange {
   if (price.max <= 0) return price;
 
@@ -305,6 +252,73 @@ function lodgingStayLabel(result: WatchRefreshResult, nights: number) {
     min: nightlyMin,
     max: nightlyMax
   })}/night`;
+}
+
+function lodgingCheckLabel(mode: LodgingMode, wasChecked: boolean) {
+  if (wasChecked) return "Check again";
+  if (mode.id === "hotel") return "Check hotel prices";
+  if (mode.id === "group-house") return "Check house prices";
+  return "Check apartment prices";
+}
+
+function guestLabel(count: number) {
+  return `${count} ${count === 1 ? "guest" : "guests"}`;
+}
+
+function savedSearchDate(value: string) {
+  return `${shortDate(value)}`;
+}
+
+function savedSearchTitle(search: SavedSearchSummary) {
+  const dateText =
+    search.departDate && search.returnDate
+      ? `${savedSearchDate(search.departDate)}-${savedSearchDate(search.returnDate)}`
+      : "saved dates";
+  const nightsText = search.nights ? tripLengthLabel(search.nights) : "saved stay";
+  const peopleText =
+    search.kind === "airfare"
+      ? flightCountLabel(search.flightCount ?? 1)
+      : guestLabel(search.flightCount ?? 2);
+  return `${dateText} · ${nightsText} · ${peopleText}`;
+}
+
+function lodgingPreferenceFromMode(modeId: LodgingModeId) {
+  return lodgingModes[modeId].label;
+}
+
+function lodgingModeIdFromSaved(search: SavedSearchSummary): LodgingModeId | undefined {
+  const lodging = search.lodging?.toLowerCase();
+  if (!lodging) return undefined;
+  if (lodging.includes("hotel")) return "hotel";
+  if (lodging.includes("group") || lodging.includes("house")) return "group-house";
+  if (lodging.includes("apartment")) return "apartment";
+  return undefined;
+}
+
+const cardAirportOptions = [
+  { code: "DEN", label: "Denver" },
+  { code: "ABQ", label: "Albuquerque" },
+  { code: "ATL", label: "Atlanta" },
+  { code: "AUS", label: "Austin" },
+  { code: "BNA", label: "Nashville" },
+  { code: "BOS", label: "Boston" },
+  { code: "BWI", label: "Baltimore" },
+  { code: "DCA", label: "Washington Reagan" },
+  { code: "DFW", label: "Dallas-Fort Worth" },
+  { code: "JFK", label: "New York JFK" },
+  { code: "LAX", label: "Los Angeles" },
+  { code: "ORD", label: "Chicago O'Hare" },
+  { code: "PHX", label: "Phoenix" },
+  { code: "SEA", label: "Seattle" },
+  { code: "SFO", label: "San Francisco" },
+  { code: "SLC", label: "Salt Lake City" }
+];
+
+const cardNightOptions = [5, 7, 10, 14, 21, 28];
+
+function normalizeCardNumber(value: number, fallback: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(Math.round(value), min), max);
 }
 
 function sourceKindLabel(sourceKind: PriceRange["sourceKind"] | WatchRefreshResult["sourceKind"]) {
@@ -457,10 +471,16 @@ function InfoButton({
 }
 
 function SourceInfo({ price, label }: { price: PriceRange; label: string }) {
+  const detail =
+    price.sourceDetail ??
+    (label.toLowerCase().includes("dining")
+      ? "Planning estimate only. Use it as a rough food budget placeholder, not a live restaurant-price check."
+      : "Planning estimate only. Live or saved provider data has not been attached to this row.");
+
   return (
     <InfoButton label={`${label} source detail`}>
       <span className="block font-semibold text-ink">{label}</span>
-      <span className="mt-1 block">{price.sourceDetail}</span>
+      <span className="mt-1 block">{detail}</span>
       <span className="mt-2 block text-ink/38">
         Source: {price.provider} · {sourceKindLabel(price.sourceKind)} · {price.sampledDates} ·{" "}
         {price.retrievedAt ? `checked ${shortDate(price.retrievedAt)}` : "not checked"}
@@ -645,6 +665,267 @@ function CheckingPriceLink({
   );
 }
 
+function ScenarioSummary({
+  destination,
+  preferences,
+  lodgingMode,
+  tripWindow,
+  savedSearches,
+  onScenarioChange
+}: {
+  destination: Destination;
+  preferences: TripPreferences;
+  lodgingMode: LodgingMode;
+  tripWindow: TripWindow;
+  savedSearches: SavedSearchSummary[];
+  onScenarioChange?: (preferences: TripPreferences) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const destinationSearches = savedSearches
+    .filter((search) => search.destinationSlug === destination.slug)
+    .slice(0, 4);
+  const seasonOptions = tripSeasonOptions(destination);
+  const selectedSeason = preferences.departDate && preferences.returnDate
+    ? "saved"
+    : preferences.travelSeason ?? "recommended";
+  const departureListId = `departure-airports-${destination.slug}`;
+
+  function applyScenarioChanges(next: Partial<TripPreferences>) {
+    onScenarioChange?.({
+      ...preferences,
+      ...next,
+      departure: (next.departure ?? preferences.departure).trim().toUpperCase()
+    });
+  }
+
+  function applyLodgingMode(modeId: LodgingModeId) {
+    const mode = lodgingModes[modeId];
+    onScenarioChange?.({
+      ...preferences,
+      lodging: lodgingPreferenceFromMode(modeId),
+      flightCount: Math.max(preferences.flightCount, mode.adults)
+    });
+  }
+
+  function applySavedSearch(search: SavedSearchSummary) {
+    const savedModeId = lodgingModeIdFromSaved(search);
+    const savedMode = savedModeId ? lodgingModes[savedModeId] : undefined;
+    onScenarioChange?.({
+      ...preferences,
+      departure: search.departure ?? preferences.departure,
+      flightCount: Math.max(
+        search.flightCount ?? preferences.flightCount,
+        savedMode?.adults ?? lodgingMode.adults
+      ),
+      nights: search.nights ?? preferences.nights,
+      lodging: savedModeId ? lodgingPreferenceFromMode(savedModeId) : preferences.lodging,
+      departDate: search.departDate,
+      returnDate: search.returnDate,
+      travelSeason: "saved"
+    });
+    setEditing(false);
+  }
+
+  return (
+    <div className="mb-2 rounded-md border border-ink/10 bg-white/65 px-3 py-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <span>
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink/38">
+            Selected scenario
+          </span>
+          <span className="mt-1 block text-xs font-semibold leading-5 text-ink/76">
+            {preferences.departure} · {flightCountLabel(preferences.flightCount)} ·{" "}
+            {travelDateLabel(tripWindow)} · {tripLengthLabel(preferences.nights)}
+          </span>
+        </span>
+        {onScenarioChange ? (
+          <button
+            type="button"
+            onClick={() => setEditing((open) => !open)}
+            className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+            aria-expanded={editing}
+          >
+            {editing ? "Done" : "Edit"}
+          </button>
+        ) : null}
+      </div>
+      <label className="mt-2 grid gap-1 text-xs font-semibold text-ink/70 sm:max-w-64">
+        <span className="text-[10px] uppercase tracking-wide text-ink/34">Selected lodging</span>
+        <select
+          value={lodgingMode.id}
+          onChange={(event) => applyLodgingMode(event.target.value as LodgingModeId)}
+          disabled={!onScenarioChange}
+          className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45 disabled:opacity-70"
+        >
+          {Object.values(lodgingModes).map((mode) => (
+            <option key={mode.id} value={mode.id}>
+              {mode.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="mt-0.5 block text-[11px] leading-4 text-ink/42">
+        These settings drive the summary cost and the airfare and lodging checks on this card.
+      </span>
+      {editing ? (
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="grid gap-1 rounded-md border border-ink/10 bg-white px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+                Departure
+              </span>
+              <input
+                className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+                list={departureListId}
+                value={preferences.departure}
+                onChange={(event) => applyScenarioChanges({ departure: event.target.value })}
+              />
+              <datalist id={departureListId}>
+                {cardAirportOptions.map((airport) => (
+                  <option
+                    key={airport.code}
+                    value={airport.code}
+                    label={`${airport.code} · ${airport.label}`}
+                  />
+                ))}
+              </datalist>
+            </label>
+            <label className="grid gap-1 rounded-md border border-ink/10 bg-white px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+                Tickets
+              </span>
+              <input
+                className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+                type="number"
+                min={1}
+                max={8}
+                value={preferences.flightCount}
+                onChange={(event) =>
+                  applyScenarioChanges({
+                    flightCount: normalizeCardNumber(
+                      Number(event.target.value),
+                      preferences.flightCount,
+                      1,
+                      8
+                    )
+                  })
+                }
+              />
+            </label>
+            <label className="grid gap-1 rounded-md border border-ink/10 bg-white px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+                Stay length
+              </span>
+              <select
+                className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+                value={cardNightOptions.includes(preferences.nights) ? String(preferences.nights) : "custom"}
+                onChange={(event) => {
+                  if (event.target.value === "custom") return;
+                  applyScenarioChanges({
+                    nights: normalizeCardNumber(Number(event.target.value), preferences.nights, 1, 60),
+                    departDate: undefined,
+                    returnDate: undefined,
+                    travelSeason: selectedSeason === "saved" ? "recommended" : preferences.travelSeason
+                  });
+                }}
+              >
+                {cardNightOptions.map((nights) => (
+                  <option key={nights} value={nights}>
+                    {tripLengthLabel(nights)}
+                  </option>
+                ))}
+                <option value="custom">custom</option>
+              </select>
+              {cardNightOptions.includes(preferences.nights) ? null : (
+                <input
+                  className="h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45"
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={preferences.nights}
+                  onChange={(event) =>
+                    applyScenarioChanges({
+                      nights: normalizeCardNumber(Number(event.target.value), preferences.nights, 1, 60),
+                      departDate: undefined,
+                      returnDate: undefined,
+                      travelSeason: selectedSeason === "saved" ? "recommended" : preferences.travelSeason
+                    })
+                  }
+                />
+              )}
+            </label>
+          </div>
+          <div className="grid gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+              Travel window
+            </span>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {seasonOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    applyScenarioChanges({
+                      travelSeason: option.value,
+                      departDate: undefined,
+                      returnDate: undefined
+                    })
+                  }
+                  className={`rounded-md border px-3 py-2 text-left transition ${
+                    selectedSeason === option.value
+                      ? "border-harbor/45 bg-harbor/8 text-ink"
+                      : "border-ink/10 bg-white text-ink/62 hover:border-harbor/30 hover:text-ink"
+                  }`}
+                >
+                  <span className="block text-xs font-semibold">{option.label}</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-ink/42">
+                    App-chosen dates inside {destination.bestMonths}
+                  </span>
+                </button>
+              ))}
+              {selectedSeason === "saved" ? (
+                <span className="rounded-md border border-harbor/35 bg-harbor/8 px-3 py-2 text-left">
+                  <span className="block text-xs font-semibold text-ink">Saved dates</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-ink/42">
+                    {travelDateLabel(tripWindow)}
+                  </span>
+                </span>
+              ) : null}
+            </div>
+          </div>
+          {destinationSearches.length ? (
+            <div className="grid gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+                Previous checks for this destination
+              </span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {destinationSearches.map((search) => (
+                  <button
+                    key={search.id}
+                    type="button"
+                    onClick={() => applySavedSearch(search)}
+                    className="rounded-md border border-ink/10 bg-white px-3 py-2 text-left transition hover:border-harbor/30 hover:text-harbor"
+                  >
+                    <span className="block text-xs font-semibold text-ink">
+                      {search.kind === "airfare" ? "Airfare" : search.lodging ?? "Lodging"}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-4 text-ink/48">
+                      {savedSearchTitle(search)}
+                    </span>
+                    <span className="mt-1 block text-[10px] font-medium text-ink/34">
+                      saved {shortDate(search.updatedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function LodgingPriceLink({
   result,
   mode,
@@ -662,19 +943,20 @@ function LodgingPriceLink({
 }) {
   const checkedAt = result?.retrievedAt;
   const wasChecked = Boolean(checkedAt);
-  const isChecked = result?.status === "checked" && result.currentRange;
-  const label = isChecked ? lodgingStayLabel(result, nights) : "Lodging not checked";
-  const status = isChecked
-    ? `${result.sourceKind === "live" ? "checked" : "saved from"} ${shortDate(checkedAt!)}`
+  const checkedResult = result?.status === "checked" && result.currentRange ? result : undefined;
+  const label = checkedResult ? lodgingStayLabel(checkedResult, nights) : `${mode.label} not checked`;
+  const status = checkedResult
+    ? `${checkedResult.sourceKind === "live" ? "checked" : "saved from"} ${shortDate(checkedAt!)}`
     : wasChecked
       ? `last checked ${shortDate(checkedAt!)}`
       : "not checked yet";
+  const checkLabel = lodgingCheckLabel(mode, Boolean(checkedResult));
 
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
         <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
-          Lodging: {mode.label}
+          Selected lodging
         </span>
         {result?.sourceUrl ? (
           <a
@@ -692,13 +974,14 @@ function LodgingPriceLink({
           </span>
         )}
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Stay dates {travelDateLabel(tripWindow)} · {status}
+          {mode.label} · {travelDateLabel(tripWindow)} · {tripLengthLabel(nights)} ·{" "}
+          {guestLabel(mode.adults)} · {status}
         </span>
         {result && result.status !== "checked" ? (
           <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
         ) : null}
       </span>
-      <CheckButton label="Check lodging" usage={usage} onClick={onCheckLodging} />
+      <CheckButton label={checkLabel} usage={usage} onClick={onCheckLodging} />
       <InfoButton label={`${mode.label} lodging detail`}>
         <span className="block font-semibold text-ink">{mode.label}</span>
         <span className="mt-1 block">
@@ -719,11 +1002,11 @@ function CheckingLodgingLink({ mode, tripWindow }: { mode: LodgingMode; tripWind
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
         <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
-          Lodging: {mode.label}
+          Selected lodging
         </span>
         <span className="inline-flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-ink">
           <RefreshCw size={13} className="shrink-0 animate-spin text-harbor" aria-hidden="true" />
-          Checking lodging...
+          Checking {mode.label.toLowerCase()}...
         </span>
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
           Stay dates {travelDateLabel(tripWindow)} · checking current prices
@@ -742,9 +1025,11 @@ export function DestinationCard({
   isCheckingLodging = false,
   onCheckFare,
   onCheckLodging,
+  onScenarioChange,
   usage,
   preferences,
-  tripWindow
+  tripWindow,
+  savedSearches = []
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
@@ -754,25 +1039,17 @@ export function DestinationCard({
   isCheckingLodging?: boolean;
   onCheckFare?: () => void;
   onCheckLodging?: () => void;
+  onScenarioChange?: (preferences: TripPreferences) => void;
   usage?: UsageState | null;
   preferences: TripPreferences;
   tripWindow: TripWindow;
+  savedSearches?: SavedSearchSummary[];
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
   const airfare = snapshotAirfare(destination, fareSnapshot, preferences.flightCount);
   const unavailableFare =
     unavailableAirfare(fareSnapshot) ?? (airfare ? undefined : uncheckedAirfare(destination, preferences, tripWindow));
-  const rentalPrice = staySearchPrice(destination.lodging.rental, preferences.nights, tripWindow);
-  const hotel3StarPrice = staySearchPrice(
-    destination.lodging.hotel3Star,
-    preferences.nights,
-    tripWindow,
-    {
-      fallbackSourceUrl: destination.lodging.rental.sourceUrl,
-      hotelClass: 3
-    }
-  );
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
   const airfareStatusText = airfare
     ? `Travel dates ${travelDateLabel(tripWindow)} · ${flightCountLabel(preferences.flightCount)} · ${
@@ -868,6 +1145,14 @@ export function DestinationCard({
 
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
+                <ScenarioSummary
+                  destination={destination}
+                  preferences={preferences}
+                  lodgingMode={lodgingMode}
+                  tripWindow={tripWindow}
+                  savedSearches={savedSearches}
+                  onScenarioChange={onScenarioChange}
+                />
                 {isCheckingFare ? (
                   <CheckingPriceLink
                     tripWindow={tripWindow}
@@ -905,21 +1190,9 @@ export function DestinationCard({
                   />
                 )}
                 <CompactPriceLink
-                  href={rentalPrice.sourceUrl}
-                  label={rentalPrice.label}
-                  eyebrow="Rental"
-                  price={rentalPrice}
-                />
-                <CompactPriceLink
-                  href={hotel3StarPrice.sourceUrl}
-                  label={hotel3StarPrice.label}
-                  eyebrow="3-star baseline"
-                  price={hotel3StarPrice}
-                />
-                <CompactPriceLink
                   href={diningTripPrice.sourceUrl}
                   label={diningTripPrice.label}
-                  eyebrow="Dining"
+                  eyebrow="Dining estimate"
                   price={diningTripPrice}
                 />
               </div>
