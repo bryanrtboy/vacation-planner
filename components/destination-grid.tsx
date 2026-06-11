@@ -26,6 +26,80 @@ type SnapshotResponse = {
   results: WatchRefreshResult[];
 };
 
+const interestSynonyms: Record<string, string[]> = {
+  art: ["art", "gallery", "galleries", "museum", "museums", "design", "ceramics", "mosaics"],
+  craft: ["craft", "ceramics", "tile", "tiles", "print", "workshops", "studio"],
+  food: ["food", "market", "markets", "dining", "restaurant", "wine"],
+  gardens: ["garden", "gardens", "botanical", "green"],
+  coast: ["coast", "coastal", "ocean", "sea", "bay", "waterfront", "ferry", "ferries"],
+  trains: ["train", "trains", "rail", "no car needed", "train-first"],
+  architecture: ["architecture", "porticoes", "historic", "university", "design"],
+  landscape: ["landscape", "views", "view", "lake", "mountain", "coast", "coastal", "desert"],
+  "quiet bases": ["quiet", "base", "bases", "slow", "low-key", "apartment", "cottage"],
+  relaxation: ["quiet", "slow", "retreat", "escape", "coast", "coastal", "garden", "landscape"],
+  recharging: ["quiet", "slow", "retreat", "escape", "low-key", "cottage", "landscape"],
+  "beautiful settings": ["landscape", "views", "view", "coast", "coastal", "bay", "ocean", "lake", "garden"],
+  bay: ["bay", "waterfront", "ferry", "ferries", "coast", "coastal"],
+  ocean: ["ocean", "sea", "coast", "coastal", "waterfront"],
+  views: ["views", "view", "landscape", "coast", "coastal", "lake", "mountain"],
+  rural: ["rural", "cottage", "quiet", "escape", "landscape", "slow"],
+  escape: ["escape", "retreat", "quiet", "slow", "cottage", "landscape"]
+};
+
+const scoredInterests: Partial<Record<string, keyof Destination["fit"]>> = {
+  art: "art",
+  food: "food",
+  gardens: "gardens",
+  landscape: "landscape"
+};
+
+function interestTerms(preferences: TripPreferences["interests"]) {
+  if (!preferences.trim()) return [];
+  return preferences
+    .toLowerCase()
+    .split(/[·,;/]+|\band\b/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
+
+function destinationInterestText(destination: Destination) {
+  return [
+    destination.name,
+    destination.region,
+    destination.tripType,
+    destination.fitSummary,
+    destination.caveat,
+    destination.bestMonths,
+    destination.avoid,
+    destination.transport,
+    destination.transportNote,
+    destination.monthlyPotential,
+    destination.sharedRentalPotential,
+    destination.highlights.join(" "),
+    destination.retreatNote,
+    destination.curatedFinds?.map((find) => `${find.label} ${find.note} ${find.kind}`).join(" "),
+    destination.links.map((link) => `${link.label} ${link.kind}`).join(" ")
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function destinationMatchesInterests(destination: Destination, preferences: TripPreferences["interests"]) {
+  const terms = interestTerms(preferences);
+  if (!terms.length) return true;
+
+  const text = destinationInterestText(destination);
+
+  return terms.some((term) => {
+    const scoredInterest = scoredInterests[term];
+    if (scoredInterest && destination.fit[scoredInterest] >= 7) return true;
+
+    const termsToMatch = interestSynonyms[term] ?? [term];
+    return termsToMatch.some((candidate) => text.includes(candidate));
+  });
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -111,7 +185,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         regionFilter === allRegionsFilter || destination.region === regionFilter;
       const transportMatches =
         transportFilter === allTransportFilter || destination.transport === transportFilter;
-      return regionMatches && transportMatches;
+      const interestMatches = destinationMatchesInterests(destination, preferences.interests);
+      return regionMatches && transportMatches && interestMatches;
     });
 
     if (scoreSort === noScoreSort) return filtered;
@@ -120,7 +195,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       const scoreDelta = b.fit[scoreSort] - a.fit[scoreSort];
       return scoreDelta || a.name.localeCompare(b.name);
     });
-  }, [destinations, regionFilter, scoreSort, transportFilter]);
+  }, [destinations, preferences.interests, regionFilter, scoreSort, transportFilter]);
   const visibleDestinations = useMemo(
     () => filteredDestinations.slice(0, visibleCount),
     [filteredDestinations, visibleCount]
@@ -443,26 +518,32 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         </span>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {visibleDestinations.map((destination) => (
-          <DestinationCard
-            key={destination.slug}
-            destination={destination}
-            fareSnapshot={snapshots[snapshotKey(destination.slug)]}
-            lodgingMode={lodgingMode}
-            lodgingSnapshot={lodgingSnapshots[lodgingKey(destination)]}
-            isCheckingFare={checkingSlugs.has(destination.slug)}
-            isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
-            onCheckFare={() => void refreshFareSnapshots([destination.slug], { manual: true })}
-            onCheckLodging={() =>
-              void refreshLodgingSnapshots([destination.slug], { manual: true })
-            }
-            usage={usage ?? lodgingUsage}
-            preferences={preferences}
-            tripWindow={tripWindows[destination.slug]}
-          />
-        ))}
-      </div>
+      {visibleDestinations.length ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {visibleDestinations.map((destination) => (
+            <DestinationCard
+              key={destination.slug}
+              destination={destination}
+              fareSnapshot={snapshots[snapshotKey(destination.slug)]}
+              lodgingMode={lodgingMode}
+              lodgingSnapshot={lodgingSnapshots[lodgingKey(destination)]}
+              isCheckingFare={checkingSlugs.has(destination.slug)}
+              isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
+              onCheckFare={() => void refreshFareSnapshots([destination.slug], { manual: true })}
+              onCheckLodging={() =>
+                void refreshLodgingSnapshots([destination.slug], { manual: true })
+              }
+              usage={usage ?? lodgingUsage}
+              preferences={preferences}
+              tripWindow={tripWindows[destination.slug]}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-ink/8 bg-white/60 px-4 py-8 text-center text-sm font-medium text-ink/54">
+          No destinations match the current region, transport, and interest settings.
+        </div>
+      )}
 
       {hasMoreDestinations ? (
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">

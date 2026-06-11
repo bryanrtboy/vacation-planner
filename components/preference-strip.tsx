@@ -63,6 +63,9 @@ const interestOptions = [
   "art · craft · coast",
   "food · trains · architecture",
   "gardens · landscape · quiet bases",
+  "relaxation · recharging · beautiful settings",
+  "bay · ocean views · food",
+  "rural escape · slow days",
   "custom"
 ];
 

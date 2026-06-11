@@ -7,6 +7,7 @@ import {
   Info,
   MapPin,
   RefreshCw,
+  Star,
 } from "lucide-react";
 import { googleFlightsSearchUrl } from "@/lib/flights/links";
 import type { LodgingMode } from "@/lib/lodging/modes";
@@ -22,6 +23,34 @@ import type {
 
 function scoreLabel(label: string) {
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function ScoreRating({ label, value }: { label: string; value: number }) {
+  const rating = Math.max(0, Math.min(5, value / 2));
+  const ariaRating = Number.isInteger(rating) ? String(rating) : rating.toFixed(1);
+
+  return (
+    <span
+      className="inline-flex min-w-28 items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/55 px-2 py-1"
+      aria-label={`${scoreLabel(label)} ${ariaRating} of 5 stars`}
+      title={`${scoreLabel(label)} ${ariaRating} of 5 stars`}
+    >
+      <span className="text-[11px] font-semibold text-ink/62">{scoreLabel(label)}</span>
+      <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span key={index} className="relative inline-flex size-3">
+            <Star size={12} className="fill-transparent text-ink/18" />
+            <span
+              className="absolute inset-0 overflow-hidden text-[#c48a2a]"
+              style={{ width: `${Math.max(0, Math.min(1, rating - index)) * 100}%` }}
+            >
+              <Star size={12} className="fill-current" />
+            </span>
+          </span>
+        ))}
+      </span>
+    </span>
+  );
 }
 
 function mapsUrl(destination: Destination) {
@@ -746,7 +775,7 @@ export function DestinationCard({
 
           <div>
             <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink/24">
-              Logistics
+              Practical fit
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 text-xs font-semibold text-ink ring-1 ring-ink/10">
@@ -755,17 +784,23 @@ export function DestinationCard({
                   {destination.transportNote}
                 </InfoButton>
               </span>
-              <span className="text-xs font-medium text-ink/62">
-                Monthly stay: {destination.monthlyPotential}
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink/62">
+                Long stay: {destination.monthlyPotential}
+                <InfoButton label={`${destination.name} long stay potential`}>
+                  How well this works as a slower 3-4 week base, not just a short visit.
+                </InfoButton>
               </span>
-              <span className="text-xs font-medium text-ink/62">
-                Shared rental: {destination.sharedRentalPotential}
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink/62">
+                Group rental: {destination.sharedRentalPotential}
+                <InfoButton label={`${destination.name} group rental potential`}>
+                  How plausible this looks for an apartment, cottage, or shared house stay.
+                </InfoButton>
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-clay/20 bg-clay/5 px-2.5 py-1.5 text-xs font-medium text-ink/70">
-                Crowd note
-                <InfoButton label={`${destination.name} caveat`}>
+                Trip tradeoff
+                <InfoButton label={`${destination.name} trip tradeoff`}>
                   <span>{destination.caveat}</span>
-                  <span className="mt-2 block text-ink/54">Avoid: {destination.avoid}</span>
+                  <span className="mt-2 block text-ink/54">Watch: {destination.avoid}</span>
                 </InfoButton>
               </span>
             </div>
@@ -775,14 +810,13 @@ export function DestinationCard({
             <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-ink/24">
               Scores
             </p>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-ink/62">
+            <div className="flex flex-wrap gap-2 text-xs font-medium text-ink/62">
               {Object.entries(destination.fit).map(([key, value]) => (
-                <span
+                <ScoreRating
                   key={key}
-                  className="inline-flex items-center gap-1"
-                >
-                  {scoreLabel(key)} {value}/10
-                </span>
+                  label={key}
+                  value={value}
+                />
               ))}
             </div>
           </div>
