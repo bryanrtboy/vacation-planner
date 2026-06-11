@@ -34,17 +34,29 @@ APP_PASSWORD=your-password
 APP_SESSION_SECRET=a-long-random-string
 ```
 
-4. Run the app:
+4. Run the app for normal UI work:
 
 ```bash
 npm run dev
 ```
 
+This starts the Next dev server with Webpack hot reload on `127.0.0.1`. Use this for design and CSS changes. Avoid `npm run build`, `npm run start`, or `npm run preview` while iterating on the UI; those are production/Cloudflare checks and will feel much slower.
+
 ## Cloudflare deployment
 
 This app uses Next.js route handlers and password middleware, so deploy it with the Cloudflare OpenNext adapter rather than as a plain static Pages output.
 
-Cloudflare Workers build/deploy command:
+Cloudflare dashboard settings:
+
+```txt
+Framework preset: None / Workers
+Build command: npm run cf:build
+Deploy command: npm run cf:deploy
+```
+
+`npm run build` is only the plain Next.js build. It does not create the `.open-next` worker output that `wrangler deploy` needs, which is why a deployment can fail with `Could not find compiled Open Next config`.
+
+Local Cloudflare build/deploy command:
 
 ```bash
 npm run deploy
