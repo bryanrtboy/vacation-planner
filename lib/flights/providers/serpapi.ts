@@ -53,6 +53,7 @@ function unavailableResult(
   error?: unknown
 ): WatchRefreshResult {
   const errorDetail = error instanceof Error ? ` ${error.message}` : "";
+  const sourceUrl = googleFlightsSearchUrl(context.destination.flightSearch);
 
   return {
     id: context.search.id,
@@ -60,7 +61,13 @@ function unavailableResult(
     destinationName: context.search.destinationName,
     status: "error",
     message: `${message}${errorDetail}`,
+    provider: "SerpApi Google Flights",
     previousRange: context.search.lastRange,
+    sampledDates: `${context.destination.flightSearch.departDate}-${context.destination.flightSearch.returnDate}`,
+    retrievedAt: new Date().toISOString(),
+    sourceUrl,
+    sourceDetail:
+      "The live airfare provider did not return a usable Google Flights price for this route/date search.",
     sourceKind: "unavailable"
   };
 }

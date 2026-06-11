@@ -62,16 +62,16 @@ const seededDestinations: Destination[] = [
     sharedRentalPotential: "Good",
     fit: { art: 9, gardens: 8, food: 8, landscape: 8 },
     airfare: {
-      min: 780,
-      max: 1250,
+      min: 800,
+      max: 1000,
       currency: "USD",
-      label: "$780-$1,250 round trip",
-      provider: "Mock flight sampler",
+      label: "$800-$1,000 round trip",
+      provider: "Google Flights search-link baseline",
       sampledDates: "Apr 14-21, Apr 21-28, May 5-12",
       retrievedAt,
       sourceDetail:
-        "Mock airfare range based on sampled spring DEN-LIS research windows. Google Flights link opens a best-effort research query with route and dates.",
-      sourceKind: "mock"
+        "Fallback airfare range calibrated from the linked Google Flights search when live API snapshots are unavailable.",
+      sourceKind: "cached"
     },
     lodging: {
       hotel3Star: {
@@ -181,16 +181,16 @@ const seededDestinations: Destination[] = [
     sharedRentalPotential: "Good",
     fit: { art: 8, gardens: 5, food: 10, landscape: 6 },
     airfare: {
-      min: 820,
-      max: 1380,
+      min: 1000,
+      max: 1400,
       currency: "USD",
-      label: "$820-$1,380 round trip",
-      provider: "Mock flight sampler",
+      label: "$1,000-$1,400 round trip",
+      provider: "Google Flights search-link baseline",
       sampledDates: "Oct 8-15, Oct 15-22, Nov 5-12",
       retrievedAt,
       sourceDetail:
-        "Mock airfare range based on fall DEN-BLQ research windows. Google Flights link opens a best-effort query with route and dates.",
-      sourceKind: "mock"
+        "Fallback airfare range calibrated from the linked Google Flights search when live API snapshots are unavailable.",
+      sourceKind: "cached"
     },
     lodging: {
       hotel3Star: {

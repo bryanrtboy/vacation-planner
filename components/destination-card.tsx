@@ -9,7 +9,7 @@ import {
   Info,
   MapPin,
 } from "lucide-react";
-import type { Destination, PriceRange, WatchedSearch } from "@/lib/types";
+import type { Destination, PriceRange, WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
 const storageKey = "artist-travel-finder:watches";
 
@@ -43,32 +43,83 @@ function priceLabel(range: { min: number; max: number }, suffix: string) {
   return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()} ${suffix}`;
 }
 
-function tripCostEstimate(destination: Destination, airfare: PriceRange) {
+function shortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function landCostEstimate(destination: Destination) {
   const nights = 7;
-  const airfareMidpoint = (airfare.min + airfare.max) / 2;
   const lodgingMidpoint =
     ((destination.lodging.rental.min + destination.lodging.rental.max) / 2) * nights;
   const diningMidpoint = ((destination.dining.min + destination.dining.max) / 2) * nights;
-  const roundedTotal = Math.round((airfareMidpoint + lodgingMidpoint + diningMidpoint) / 50) * 50;
+  return Math.round((lodgingMidpoint + diningMidpoint) / 50) * 50;
+}
+
+function tripCostEstimate(destination: Destination, airfare: PriceRange) {
+  const airfareMidpoint = (airfare.min + airfare.max) / 2;
+  const roundedTotal = Math.round((airfareMidpoint + landCostEstimate(destination)) / 50) * 50;
 
   return `$${roundedTotal.toLocaleString()}`;
 }
 
-function watchedAirfare(destination: Destination, watch?: WatchedSearch): PriceRange {
-  if (!watch?.lastRange) return destination.airfare;
+function tripCostSummary(destination: Destination, airfare: PriceRange, unavailable?: WatchRefreshResult) {
+  if (unavailable) {
+    return `Land costs around $${landCostEstimate(destination).toLocaleString()}; airfare unavailable.`;
+  }
+
+  return `Cost around ${tripCostEstimate(destination, airfare)}.`;
+}
+
+function resultAirfare(destination: Destination, result: WatchRefreshResult): PriceRange {
+  if (!result.currentRange) return destination.airfare;
 
   return {
     ...destination.airfare,
-    min: watch.lastRange.min,
-    max: watch.lastRange.max,
-    label: priceLabel(watch.lastRange, "round trip"),
-    provider: watch.lastProvider ?? destination.airfare.provider,
-    sampledDates: watch.lastSampledDates ?? destination.airfare.sampledDates,
-    retrievedAt: watch.lastCheckedAt ?? destination.airfare.retrievedAt,
-    sourceUrl: watch.lastSourceUrl ?? destination.airfare.sourceUrl,
-    sourceDetail: watch.lastSourceDetail ?? destination.airfare.sourceDetail,
-    sourceKind: watch.lastSourceKind ?? destination.airfare.sourceKind
+    min: result.currentRange.min,
+    max: result.currentRange.max,
+    label: priceLabel(result.currentRange, "round trip"),
+    provider: result.provider ?? destination.airfare.provider,
+    sampledDates: result.sampledDates ?? destination.airfare.sampledDates,
+    retrievedAt: result.retrievedAt ?? destination.airfare.retrievedAt,
+    sourceUrl: result.sourceUrl ?? destination.airfare.sourceUrl,
+    sourceDetail: result.sourceDetail ?? destination.airfare.sourceDetail,
+    sourceKind: result.sourceKind
   };
+}
+
+function watchedAirfare(
+  destination: Destination,
+  watch?: WatchedSearch,
+  fareSnapshot?: WatchRefreshResult
+): PriceRange {
+  if (watch?.lastRange) {
+    return {
+      ...destination.airfare,
+      min: watch.lastRange.min,
+      max: watch.lastRange.max,
+      label: priceLabel(watch.lastRange, "round trip"),
+      provider: watch.lastProvider ?? destination.airfare.provider,
+      sampledDates: watch.lastSampledDates ?? destination.airfare.sampledDates,
+      retrievedAt: watch.lastCheckedAt ?? destination.airfare.retrievedAt,
+      sourceUrl: watch.lastSourceUrl ?? destination.airfare.sourceUrl,
+      sourceDetail: watch.lastSourceDetail ?? destination.airfare.sourceDetail,
+      sourceKind: watch.lastSourceKind ?? destination.airfare.sourceKind
+    };
+  }
+
+  if (fareSnapshot?.status === "checked") return resultAirfare(destination, fareSnapshot);
+  return destination.airfare;
+}
+
+function unavailableAirfare(fareSnapshot?: WatchRefreshResult) {
+  if (!fareSnapshot || fareSnapshot.status === "checked") return undefined;
+  return fareSnapshot;
 }
 
 function linkTone() {
@@ -167,6 +218,13 @@ function CompactPriceLink({
   eyebrow: string;
   price: PriceRange;
 }) {
+  const sourceStatus =
+    eyebrow === "Airfare"
+      ? `${price.sourceKind === "live" ? "Live" : price.sourceKind === "cached" ? "Cached" : "Mock"} ${
+          price.sourceKind === "live" ? "checked" : "from"
+        } ${shortDate(price.retrievedAt)}`
+      : "";
+
   return (
     <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
       <span className="min-w-0 flex-1">
@@ -188,18 +246,63 @@ function CompactPriceLink({
             {label}
           </span>
         )}
+        {sourceStatus ? (
+          <span className="mt-0.5 block text-[11px] font-medium text-ink/42">{sourceStatus}</span>
+        ) : null}
       </span>
       <SourceInfo price={price} label={eyebrow} />
     </div>
   );
 }
 
-export function DestinationCard({ destination }: { destination: Destination }) {
+function UnavailablePriceLink({ result }: { result: WatchRefreshResult }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
+          Airfare
+        </span>
+        {result.sourceUrl ? (
+          <a
+            href={result.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-1 truncate text-sm font-semibold text-ink transition hover:text-harbor"
+          >
+            Airfare unavailable
+            <ExternalLink size={12} className="shrink-0" aria-hidden="true" />
+          </a>
+        ) : (
+          <span className="inline-flex max-w-full items-center gap-1 truncate text-sm font-semibold text-ink">
+            Airfare unavailable
+          </span>
+        )}
+      </span>
+      <InfoButton label="Airfare unavailable detail">
+        <span className="block font-semibold text-ink">Airfare unavailable</span>
+        <span className="mt-1 block">{result.message}</span>
+        <span className="mt-2 block text-ink/38">
+          {result.provider ?? "Live airfare provider"} · unavailable · checked{" "}
+          {result.retrievedAt ? shortDate(result.retrievedAt) : "recently"}
+        </span>
+      </InfoButton>
+    </div>
+  );
+}
+
+export function DestinationCard({
+  destination,
+  fareSnapshot
+}: {
+  destination: Destination;
+  fareSnapshot?: WatchRefreshResult;
+}) {
   const [watched, setWatched] = useState(false);
   const [watch, setWatch] = useState<WatchedSearch | undefined>();
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
-  const airfare = watchedAirfare(destination, watch);
+  const airfare = watchedAirfare(destination, watch, fareSnapshot);
+  const unavailableFare = unavailableAirfare(fareSnapshot);
   const bannerStyle = theme.photoUrl
     ? {
         backgroundImage: `${theme.photoOverlay}, url("${theme.photoUrl}")`,
@@ -302,7 +405,9 @@ export function DestinationCard({ destination }: { destination: Destination }) {
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
             {destination.fitSummary}{" "}
-            <span className="font-semibold text-ink">Cost around {tripCostEstimate(destination, airfare)}.</span>
+            <span className="font-semibold text-ink">
+              {tripCostSummary(destination, airfare, unavailableFare)}
+            </span>
           </p>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
@@ -332,12 +437,16 @@ export function DestinationCard({ destination }: { destination: Destination }) {
 
             {pricesOpen ? (
               <div className={`mt-2 rounded-md border p-2 ${theme.panelClass}`}>
-                <CompactPriceLink
-                  href={airfare.sourceUrl}
-                  label={airfare.label}
-                  eyebrow="Airfare"
-                  price={airfare}
-                />
+                {unavailableFare ? (
+                  <UnavailablePriceLink result={unavailableFare} />
+                ) : (
+                  <CompactPriceLink
+                    href={airfare.sourceUrl}
+                    label={airfare.label}
+                    eyebrow="Airfare"
+                    price={airfare}
+                  />
+                )}
                 <CompactPriceLink
                   href={destination.lodging.rental.sourceUrl}
                   label={destination.lodging.rental.label}

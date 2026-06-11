@@ -1,5 +1,5 @@
 import { Header } from "@/components/header";
-import { DestinationCard } from "@/components/destination-card";
+import { DestinationGrid } from "@/components/destination-grid";
 import { PriceWatchPanel } from "@/components/price-watch-panel";
 import { PreferenceStrip } from "@/components/preference-strip";
 import { destinations } from "@/lib/seed-data";
@@ -21,13 +21,9 @@ export default function HomePage() {
                 Shortlisted places with enough context to compare, not enough to bury the decision.
               </p>
             </div>
-            <p className="text-xs text-ink/24">Prototype prices until live APIs are connected.</p>
+            <p className="text-xs text-ink/24">Live airfare when available, cached daily.</p>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {destinations.map((destination) => (
-              <DestinationCard key={destination.slug} destination={destination} />
-            ))}
-          </div>
+          <DestinationGrid destinations={destinations} />
         </section>
       </div>
     </main>
