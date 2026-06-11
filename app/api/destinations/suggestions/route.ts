@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { suggestDestinationsWithGemini } from "@/lib/ai/gemini";
 import { destinationPhotoSearchUrl, fallbackPhotoForRegion } from "@/lib/destination-photos";
-import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
+import {
+  getUsageState,
+  releaseReservedChecks,
+  tryReserveChecks
+} from "@/lib/price-watch/usage-store";
 import { listDestinationCandidates, writeDestinationCandidate } from "@/lib/storage/destination-store";
 import {
   destinationSuggestionStorageState,
@@ -329,9 +333,11 @@ export async function POST(request: Request) {
         : "Suggestions were generated, but could not be saved. Check the migration and logs."
     });
   } catch (error) {
+    const usage = await releaseReservedChecks(reservation.allowed, aiUsageService);
+
     return NextResponse.json(
       {
-        usage: await getUsageState(aiUsageService),
+        usage,
         storageReady: true,
         suggestions: await listDestinationSuggestions("draft"),
         message: error instanceof Error ? error.message : "Unable to generate suggestions."

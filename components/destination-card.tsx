@@ -252,6 +252,7 @@ function uncheckedAirfare(
     sourceUrl: googleFlightsSearchUrl({
       origin: preferences.departure,
       destination: destination.flightSearch.destination,
+      destinationAirports: destination.flightSearch.destinationAirports,
       departDate: tripWindow.departDate,
       returnDate: tripWindow.returnDate,
       adults: preferences.flightCount
