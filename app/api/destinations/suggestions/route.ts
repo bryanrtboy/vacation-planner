@@ -88,7 +88,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       buttonClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
       watchActiveClass: "border-[#336b73] bg-[#336b73] text-white hover:bg-[#12363c]",
       textClass: "text-[#336b73]",
-      moodLabel: "AI suggested"
+      moodLabel: "Suggested idea"
     },
     flightSearch: {
       origin: defaultTripPreferences.departure,
@@ -98,7 +98,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       returnDate: "2026-10-22"
     },
     transport: "Car useful",
-    transportNote: "AI-suggested destination; review local transport before relying on this.",
+    transportNote: "Suggested destination; review local transport before relying on this.",
     monthlyPotential: "Selective",
     sharedRentalPotential: "Possible",
     fit: {
@@ -116,10 +116,10 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       max: 0,
       currency: "USD",
       label: "Airfare not checked",
-      provider: "Gemini suggestion",
+      provider: "Suggested idea",
       sampledDates: "Not checked",
       retrievedAt: new Date().toISOString(),
-      sourceDetail: "AI-suggested destination. Use Check now for live airfare.",
+      sourceDetail: "Suggested destination. Use Check now for airfare.",
       sourceKind: "unavailable"
     },
     lodging: {
@@ -128,10 +128,10 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
         max: 0,
         currency: "USD",
         label: "Hotel baseline not checked",
-        provider: "Gemini suggestion",
+        provider: "Suggested idea",
         sampledDates: "Not checked",
         retrievedAt: new Date().toISOString(),
-        sourceDetail: "AI-suggested destination. Use Check lodging for live lodging.",
+        sourceDetail: "Suggested destination. Use Check lodging for current lodging prices.",
         sourceKind: "unavailable"
       },
       rental: {
@@ -139,13 +139,13 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
         max: 0,
         currency: "USD",
         label: "Rental not checked",
-        provider: "Gemini suggestion",
+        provider: "Suggested idea",
         sampledDates: "Not checked",
         retrievedAt: new Date().toISOString(),
         sourceUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(
           suggestion.name
         )}`,
-        sourceDetail: "AI-suggested destination. Use Check lodging for live lodging.",
+        sourceDetail: "Suggested destination. Use Check lodging for current lodging prices.",
         sourceKind: "unavailable"
       }
     },
@@ -154,15 +154,16 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       max: 0,
       currency: "USD",
       label: "Dining not estimated",
-      provider: "Gemini suggestion",
+      provider: "Suggested idea",
       sampledDates: "Not checked",
       retrievedAt: new Date().toISOString(),
+      sourceDetail: "Dining has not been estimated for this suggested destination yet.",
       sourceKind: "unavailable"
     },
     highlights: suggestion.payload.interests,
     curatedFinds: suggestion.payload.starterLinks?.map((link) => ({
       label: link.label,
-      note: "AI-suggested starter research link.",
+      note: "Starter research link from the suggestion.",
       url: link.url,
       kind: link.kind === "guide" || link.kind === "transport" ? "day-trip" : link.kind
     })),
@@ -234,7 +235,7 @@ export async function POST(request: Request) {
         usage: reservation.usage,
         storageReady: true,
         suggestions: await listDestinationSuggestions("draft"),
-        message: "Daily AI suggestion cap reached. Existing drafts are still shown."
+        message: "Daily suggestion cap reached. Existing suggested ideas are still shown."
       },
       { status: 429 }
     );
@@ -289,10 +290,10 @@ export async function POST(request: Request) {
       storageReady: true,
       suggestions: saved ? await listDestinationSuggestions("draft") : suggestions,
       message: saved
-        ? `Saved ${suggestions.length} draft destination suggestion${
+        ? `Saved ${suggestions.length} suggested destination idea${
             suggestions.length === 1 ? "" : "s"
           }.`
-        : "Gemini returned suggestions, but D1 did not save them. Check the D1 migration and logs."
+        : "Suggestions were generated, but could not be saved. Check the migration and logs."
     });
   } catch (error) {
     return NextResponse.json(
@@ -339,7 +340,7 @@ export async function PATCH(request: Request) {
       {
         usage: await getUsageState(aiUsageService),
         suggestions: await listDestinationSuggestions("draft"),
-        message: "Suggestion was not found in D1."
+        message: "Suggestion was not found in saved ideas."
       },
       { status: 404 }
     );

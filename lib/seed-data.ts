@@ -3,6 +3,14 @@ import { googleFlightsSearchUrl } from "@/lib/flights/links";
 
 const retrievedAt = "2026-06-10";
 
+function planningHotelSourceDetail(destinationName: string, sampleWindow: string) {
+  return `Planning 3-star hotel estimate for ${destinationName}, based on public hotel-search ranges and city-cost notes reviewed ${retrievedAt}. Sample window: ${sampleWindow}. Use Check lodging for current Google Hotels results.`;
+}
+
+function planningDiningSourceDetail(destinationName: string) {
+  return `Rough daily dining budget for two in ${destinationName}, based on public city-cost guides such as Budget Your Trip and Numbeo-style local cost indexes, plus planning judgment reviewed ${retrievedAt}. Treat it as a budgeting anchor, not a live menu-price quote.`;
+}
+
 function withFlightLinks(destination: Destination): Destination {
   const sourceUrl = googleFlightsSearchUrl(destination.flightSearch);
   return {
@@ -99,11 +107,10 @@ function candidate(input: CandidateInput): Destination {
         max: input.hotel3Star.max,
         currency: "USD",
         label: `$${input.hotel3Star.min}-$${input.hotel3Star.max}/night`,
-        provider: "Seed hotel estimate",
+        provider: "Planning hotel estimate",
         sampledDates: "Shoulder-season planning window",
         retrievedAt,
-        sourceDetail:
-          "Seed 3-star hotel baseline retained only as a planning placeholder until live lodging checks are run.",
+        sourceDetail: planningHotelSourceDetail(input.name, "shoulder-season planning window"),
         sourceKind: "mock"
       },
       rental: {
@@ -125,9 +132,10 @@ function candidate(input: CandidateInput): Destination {
       max: input.dining.max,
       currency: "USD",
       label: `$${input.dining.min}-$${input.dining.max}/day for two`,
-      provider: "Seed dining estimate",
+      provider: "Planning dining estimate",
       sampledDates: "Current city-cost estimate",
       retrievedAt,
+      sourceDetail: planningDiningSourceDetail(input.name),
       sourceKind: "mock"
     },
     highlights: input.highlights,
@@ -621,11 +629,10 @@ const seededDestinations: Destination[] = [
         max: 185,
         currency: "USD",
         label: "$110-$185/night",
-        provider: "Mock hotel baseline",
+        provider: "Planning hotel estimate",
         sampledDates: "April weekday samples",
         retrievedAt,
-        sourceDetail:
-          "Mock 3-star baseline for spring coastal Portugal. Hotels are retained only as a reference point against apartments.",
+        sourceDetail: planningHotelSourceDetail("Lisbon Coast", "April weekday samples"),
         sourceKind: "mock"
       },
       rental: {
@@ -647,9 +654,10 @@ const seededDestinations: Destination[] = [
       max: 145,
       currency: "USD",
       label: "$85-$145/day for two",
-      provider: "Mock dining estimate",
+      provider: "Planning dining estimate",
       sampledDates: "Current city-cost estimate",
       retrievedAt,
+      sourceDetail: planningDiningSourceDetail("Lisbon Coast"),
       sourceKind: "mock"
     },
     highlights: ["Museu Calouste Gulbenkian", "MAAT", "tile traditions", "Sintra gardens"],
@@ -739,11 +747,10 @@ const seededDestinations: Destination[] = [
         max: 180,
         currency: "USD",
         label: "$105-$180/night",
-        provider: "Mock hotel baseline",
+        provider: "Planning hotel estimate",
         sampledDates: "October weekday samples",
         retrievedAt,
-        sourceDetail:
-          "Mock 3-star baseline for central Bologna. Used as a pricing anchor, not as a hotel-shopping grid.",
+        sourceDetail: planningHotelSourceDetail("Bologna and Emilia-Romagna", "October weekday samples"),
         sourceKind: "mock"
       },
       hotel4StarDeal: {
@@ -751,11 +758,11 @@ const seededDestinations: Destination[] = [
         max: 215,
         currency: "USD",
         label: "$145-$215/night when deals appear",
-        provider: "Mock hotel baseline",
+        provider: "Planning hotel estimate",
         sampledDates: "October weekday samples",
         retrievedAt,
         sourceDetail:
-          "Mock 4-star deal note for occasional central Bologna dips during fall samples.",
+          "Planning 4-star deal estimate for Bologna, based on occasional central Bologna dips during fall public hotel-search samples reviewed 2026-06-10. Use Check lodging for current Google Hotels results.",
         sourceKind: "mock"
       },
       rental: {
@@ -777,9 +784,10 @@ const seededDestinations: Destination[] = [
       max: 170,
       currency: "USD",
       label: "$95-$170/day for two",
-      provider: "Mock dining estimate",
+      provider: "Planning dining estimate",
       sampledDates: "Current city-cost estimate",
       retrievedAt,
+      sourceDetail: planningDiningSourceDetail("Bologna and Emilia-Romagna"),
       sourceKind: "mock"
     },
     highlights: ["MAMbo", "porticoes", "Modena day trip", "Ravenna mosaics by train"],
@@ -869,11 +877,10 @@ const seededDestinations: Destination[] = [
         max: 135,
         currency: "USD",
         label: "$70-$135/night",
-        provider: "Mock hotel baseline",
+        provider: "Planning hotel estimate",
         sampledDates: "November weekday samples",
         retrievedAt,
-        sourceDetail:
-          "Mock 3-star baseline for Essaouira. Useful only as a reference against riads and courtyard rentals.",
+        sourceDetail: planningHotelSourceDetail("Essaouira Creative Coast", "November weekday samples"),
         sourceKind: "mock"
       },
       rental: {
@@ -895,9 +902,10 @@ const seededDestinations: Destination[] = [
       max: 120,
       currency: "USD",
       label: "$60-$120/day for two",
-      provider: "Mock dining estimate",
+      provider: "Planning dining estimate",
       sampledDates: "Current city-cost estimate",
       retrievedAt,
+      sourceDetail: planningDiningSourceDetail("Essaouira Creative Coast"),
       sourceKind: "mock"
     },
     highlights: ["medina craft streets", "contemporary galleries", "Atlantic light", "courtyard houses"],
@@ -986,11 +994,10 @@ const seededDestinations: Destination[] = [
         max: 165,
         currency: "USD",
         label: "$95-$165/night",
-        provider: "Mock hotel baseline",
+        provider: "Planning hotel estimate",
         sampledDates: "September weekday samples",
         retrievedAt,
-        sourceDetail:
-          "Mock 3-star baseline for Graz. Used as an anchor beside apartment searches and longer-stay potential.",
+        sourceDetail: planningHotelSourceDetail("Graz and Styria", "September weekday samples"),
         sourceKind: "mock"
       },
       rental: {
@@ -1012,9 +1019,10 @@ const seededDestinations: Destination[] = [
       max: 165,
       currency: "USD",
       label: "$95-$165/day for two",
-      provider: "Mock dining estimate",
+      provider: "Planning dining estimate",
       sampledDates: "Current city-cost estimate",
       retrievedAt,
+      sourceDetail: planningDiningSourceDetail("Graz and Styria"),
       sourceKind: "mock"
     },
     highlights: ["Kunsthaus Graz", "Schloss Eggenberg", "farm markets", "Styria wine roads"],

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { lodgingModeFromPreference } from "@/lib/lodging/modes";
 import { sampleSerpApiLodging } from "@/lib/lodging/providers/serpapi";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
-import { destinations, getDestination } from "@/lib/seed-data";
+import { listDestinationCandidates } from "@/lib/storage/destination-store";
 import {
   readPriceSnapshot,
   writePriceSnapshot
@@ -14,7 +14,7 @@ import {
   normalizeFlightCount,
   recommendedTripWindow
 } from "@/lib/trip-preferences";
-import type { TripPreferences, WatchRefreshResult } from "@/lib/types";
+import type { Destination, TripPreferences, WatchRefreshResult } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -37,12 +37,11 @@ function normalizePreferences(preferences?: Partial<TripPreferences>): TripPrefe
   };
 }
 
-function cappedResult(destinationSlug: string): WatchRefreshResult {
-  const destination = getDestination(destinationSlug);
+function cappedResult(destination: Destination): WatchRefreshResult {
   return {
-    id: `${destinationSlug}-lodging-capped`,
-    destinationSlug,
-    destinationName: destination?.name ?? destinationSlug,
+    id: `${destination.slug}-lodging-capped`,
+    destinationSlug: destination.slug,
+    destinationName: destination.name,
     status: "capped",
     message: "Daily lodging check cap reached. Cached or estimated lodging is still shown.",
     retrievedAt: new Date().toISOString(),
@@ -59,14 +58,16 @@ export async function POST(request: Request) {
   const preferences = normalizePreferences(body?.preferences);
   const shouldRefresh = body?.refresh === true;
   const mode = lodgingModeFromPreference(preferences.lodging);
+  const destinations = await listDestinationCandidates();
+  const destinationBySlug = new Map(destinations.map((destination) => [destination.slug, destination]));
   const requestedSlugs = body?.slugs?.length
     ? body.slugs
     : destinations.map((destination) => destination.slug);
   const uniqueSlugs = [...new Set(requestedSlugs)];
   const contexts = uniqueSlugs
-    .map((slug) => {
-      const destination = getDestination(slug);
-      if (!destination) return null;
+    .map((slug) => destinationBySlug.get(slug))
+    .filter((destination): destination is Destination => Boolean(destination))
+    .map((destination) => {
       const tripWindow = recommendedTripWindow(destination, preferences.nights);
       return {
         destination,
@@ -74,8 +75,7 @@ export async function POST(request: Request) {
         tripWindow,
         snapshotSearch: lodgingSnapshotSearch(destination, tripWindow, mode)
       };
-    })
-    .filter((context): context is NonNullable<typeof context> => Boolean(context));
+    });
   const cachedPairs = await Promise.all(
     contexts.map(async (context) => ({
       context,
@@ -114,9 +114,9 @@ export async function POST(request: Request) {
     return cached
       ? {
           ...cached,
-          message: "Daily lodging check cap reached. Showing the cached durable lodging quote."
+          message: "Daily lodging check cap reached. Showing the saved lodging quote from a previous check."
         }
-      : cappedResult(context.destination.slug);
+      : cappedResult(context.destination);
   });
 
   return NextResponse.json({

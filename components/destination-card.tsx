@@ -130,6 +130,13 @@ function travelDateLabel(tripWindow: TripWindow) {
 }
 
 function landCostEstimate(destination: Destination, nights: number) {
+  if (
+    destination.lodging.rental.max <= 0 ||
+    destination.dining.max <= 0
+  ) {
+    return undefined;
+  }
+
   const lodgingMidpoint =
     ((destination.lodging.rental.min + destination.lodging.rental.max) / 2) * nights;
   const diningMidpoint = ((destination.dining.min + destination.dining.max) / 2) * nights;
@@ -137,9 +144,12 @@ function landCostEstimate(destination: Destination, nights: number) {
 }
 
 function tripCostEstimate(destination: Destination, airfare: PriceRange, nights: number) {
+  const landCost = landCostEstimate(destination, nights);
+  if (typeof landCost !== "number") return undefined;
+
   const airfareMidpoint = (airfare.min + airfare.max) / 2;
   const roundedTotal =
-    Math.round((airfareMidpoint + landCostEstimate(destination, nights)) / 50) * 50;
+    Math.round((airfareMidpoint + landCost) / 50) * 50;
 
   return `$${roundedTotal.toLocaleString()}`;
 }
@@ -152,19 +162,22 @@ function tripCostSummary(
   unavailable?: WatchRefreshResult,
   isCheckingFare?: boolean
 ) {
+  const landCost = landCostEstimate(destination, nights);
+
   if (isCheckingFare) {
-    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; checking airfare for ${flightCountLabel(
-      flightCount
-    )}.`;
+    return typeof landCost === "number"
+      ? `Cost around $${landCost.toLocaleString()} before airfare; checking airfare.`
+      : "Cost not checked yet; checking airfare.";
   }
 
   if (!airfare || unavailable) {
-    return `Land costs around $${landCostEstimate(destination, nights).toLocaleString()}; airfare for ${flightCountLabel(
-      flightCount
-    )} not checked.`;
+    return typeof landCost === "number"
+      ? `Cost around $${landCost.toLocaleString()} before airfare.`
+      : "Cost not checked yet.";
   }
 
-  return `Cost around ${tripCostEstimate(destination, airfare, nights)}.`;
+  const total = tripCostEstimate(destination, airfare, nights);
+  return total ? `Cost around ${total}.` : "Cost not checked yet.";
 }
 
 function rangeLabel(range: { min: number; max: number }) {
@@ -233,6 +246,8 @@ function uncheckedAirfare(
 }
 
 function stayPrice(price: PriceRange, nights: number): PriceRange {
+  if (price.max <= 0) return price;
+
   return {
     ...price,
     label: `${unitPriceLabel(price, "/night")} · ${moneyLabel(price.min * nights)}-${moneyLabel(
@@ -256,6 +271,8 @@ function staySearchPrice(
 }
 
 function diningPrice(price: PriceRange, nights: number): PriceRange {
+  if (price.max <= 0) return price;
+
   return {
     ...price,
     label: `${unitPriceLabel(price, "/day for two")} · ${moneyLabel(price.min * nights)}-${moneyLabel(
@@ -272,6 +289,13 @@ function lodgingStayLabel(result: WatchRefreshResult, nights: number) {
     min: nightlyMin,
     max: nightlyMax
   })}/night`;
+}
+
+function sourceKindLabel(sourceKind: PriceRange["sourceKind"] | WatchRefreshResult["sourceKind"]) {
+  if (sourceKind === "live") return "Live check";
+  if (sourceKind === "cached") return "Saved check";
+  if (sourceKind === "unavailable") return "Unavailable";
+  return "Planning estimate";
 }
 
 function linkTone() {
@@ -352,8 +376,8 @@ function SourceInfo({ price, label }: { price: PriceRange; label: string }) {
       <span className="block font-semibold text-ink">{label}</span>
       <span className="mt-1 block">{price.sourceDetail}</span>
       <span className="mt-2 block text-ink/38">
-        {price.provider} · {price.sourceKind} · sampled {price.sampledDates} · retrieved{" "}
-        {price.retrievedAt}
+        Source: {price.provider} · {sourceKindLabel(price.sourceKind)} · {price.sampledDates} ·{" "}
+        {price.retrievedAt ? `checked ${shortDate(price.retrievedAt)}` : "not checked"}
       </span>
     </InfoButton>
   );
@@ -412,8 +436,12 @@ function CompactPriceLink({
   const sourceStatus =
     statusText ??
     (eyebrow === "Airfare"
-      ? `${price.sourceKind === "live" ? "Live" : price.sourceKind === "cached" ? "Cached" : "Mock"} ${
-          price.sourceKind === "live" ? "checked" : "from"
+      ? `${
+          price.sourceKind === "live"
+            ? "Checked"
+            : price.sourceKind === "cached"
+              ? "Saved from"
+              : "Planning estimate from"
         } ${shortDate(price.retrievedAt)}`
       : "");
 
@@ -498,7 +526,7 @@ function UnavailablePriceLink({
         <span className="block font-semibold text-ink">{label}</span>
         <span className="mt-1 block">{result.message}</span>
         <span className="mt-2 block text-ink/38">
-          {result.provider ?? "Live airfare provider"} · unavailable ·{" "}
+          Source: {result.provider ?? "Airfare check"} · unavailable ·{" "}
           {wasChecked ? `checked ${shortDate(result.retrievedAt!)}` : "not checked"}
         </span>
       </InfoButton>
@@ -524,7 +552,7 @@ function CheckingPriceLink({
           Checking airfare...
         </span>
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Travel dates {travelDateLabel(tripWindow)} · {flightCountLabel(flightCount)} · querying live provider
+          Travel dates {travelDateLabel(tripWindow)} · {flightCountLabel(flightCount)} · checking current prices
         </span>
       </span>
     </div>
@@ -551,7 +579,7 @@ function LodgingPriceLink({
   const isChecked = result?.status === "checked" && result.currentRange;
   const label = isChecked ? lodgingStayLabel(result, nights) : "Lodging not checked";
   const status = isChecked
-    ? `${result.sourceKind === "live" ? "live checked" : "cached from"} ${shortDate(checkedAt!)}`
+    ? `${result.sourceKind === "live" ? "checked" : "saved from"} ${shortDate(checkedAt!)}`
     : wasChecked
       ? `last checked ${shortDate(checkedAt!)}`
       : "not checked yet";
@@ -589,10 +617,10 @@ function LodgingPriceLink({
         <span className="block font-semibold text-ink">{mode.label}</span>
         <span className="mt-1 block">
           {result?.message ??
-            "Live lodging has not been checked for this mode and date window yet."}
+            "Lodging has not been checked for this stay type and date window yet."}
         </span>
         <span className="mt-2 block text-ink/38">
-          {result?.provider ?? "SerpApi Google Hotels"} · {result?.sourceKind ?? "unavailable"} ·{" "}
+          Source: {result?.provider ?? "Lodging check"} · {sourceKindLabel(result?.sourceKind ?? "unavailable")} ·{" "}
           {result?.retrievedAt ? `checked ${shortDate(result.retrievedAt)}` : "not checked"}
         </span>
       </InfoButton>
@@ -612,7 +640,7 @@ function CheckingLodgingLink({ mode, tripWindow }: { mode: LodgingMode; tripWind
           Checking lodging...
         </span>
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          Stay dates {travelDateLabel(tripWindow)} · querying live provider
+          Stay dates {travelDateLabel(tripWindow)} · checking current prices
         </span>
       </span>
     </div>
@@ -662,7 +690,11 @@ export function DestinationCard({
   const diningTripPrice = diningPrice(destination.dining, preferences.nights);
   const airfareStatusText = airfare
     ? `Travel dates ${travelDateLabel(tripWindow)} · ${flightCountLabel(preferences.flightCount)} · ${
-        airfare.sourceKind === "live" ? "live checked" : airfare.sourceKind === "cached" ? "cached from" : "mock from"
+        airfare.sourceKind === "live"
+          ? "checked"
+          : airfare.sourceKind === "cached"
+            ? "saved from"
+            : "planning estimate from"
       } ${shortDate(airfare.retrievedAt)}`
     : undefined;
   const bannerStyle = theme.photoUrl

@@ -58,6 +58,16 @@ function normalizeFare(
   };
 }
 
+function bestArrivalId(flightSearch: {
+  destination: string;
+  destinationAirports?: string[];
+}) {
+  return (
+    flightSearch.destinationAirports?.find((airport) => /^[A-Z]{3}$/.test(airport)) ??
+    flightSearch.destination
+  );
+}
+
 function unavailableResult(
   context: FlightProviderContext,
   message: string,
@@ -85,7 +95,7 @@ function unavailableResult(
     retrievedAt: new Date().toISOString(),
     sourceUrl,
     sourceDetail:
-      "The live airfare provider did not return a usable Google Flights price for this route/date search.",
+      "The airfare check did not return a usable Google Flights price for this route and date search.",
     sourceKind: "unavailable"
   };
 }
@@ -99,7 +109,7 @@ export async function sampleSerpApiFare(
 ): Promise<WatchRefreshResult> {
   const key = apiKey();
   if (!key) {
-    return unavailableResult(context, "SerpApi key is not configured.");
+    return unavailableResult(context, "Airfare checks are not configured yet.");
   }
 
   const flightSearch = {
@@ -119,7 +129,7 @@ export async function sampleSerpApiFare(
     show_hidden: "true",
     sort_by: "2",
     departure_id: flightSearch.origin,
-    arrival_id: flightSearch.destinationAirports[0] ?? flightSearch.destination,
+    arrival_id: bestArrivalId(flightSearch),
     outbound_date: flightSearch.departDate,
     return_date: flightSearch.returnDate,
     currency: "USD",
@@ -134,7 +144,7 @@ export async function sampleSerpApiFare(
     const data = (await response.json().catch(() => ({}))) as SerpApiGoogleFlightsResponse;
 
     if (!response.ok) {
-      return unavailableResult(context, data.error ?? `SerpApi returned ${response.status}.`);
+      return unavailableResult(context, data.error ?? `Airfare check returned ${response.status}.`);
     }
 
     if (data.error) {
@@ -151,9 +161,9 @@ export async function sampleSerpApiFare(
       destinationSlug: context.search.destinationSlug,
       destinationName: context.search.destinationName,
       status: "checked",
-      message: `Live Google Flights airfare sampled ${fare.offerCount} result${
+      message: `Google Flights airfare checked ${fare.offerCount} result${
         fare.offerCount === 1 ? "" : "s"
-      } via SerpApi for ${context.search.route} (${ticketCount} ${
+      } for ${context.search.route} (${ticketCount} ${
         ticketCount === 1 ? "ticket" : "tickets"
       }); displayed range uses the lowest ${fare.displayedOfferCount}.`,
       provider: "SerpApi Google Flights",
@@ -163,11 +173,11 @@ export async function sampleSerpApiFare(
       retrievedAt: fare.retrievedAt,
       sourceUrl: fare.sourceUrl,
       sourceDetail:
-        "Live airfare sampled from SerpApi Google Flights deep search. The displayed range uses the lowest fare cluster and excludes much higher outliers.",
+        "Airfare checked through Google Flights. The displayed range uses the lowest fare cluster and excludes much higher outliers.",
       sourceKind: "live"
     };
   } catch (error) {
-    return unavailableResult(context, "Unable to sample SerpApi Google Flights fares.", error);
+    return unavailableResult(context, "Unable to check Google Flights fares.", error);
   }
 }
 

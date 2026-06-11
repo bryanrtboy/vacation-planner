@@ -77,7 +77,7 @@ function unavailableResult(
     retrievedAt: new Date().toISOString(),
     sourceUrl: googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
     sourceDetail:
-      "The live lodging provider did not return a usable Google Hotels price for this stay search.",
+      "The lodging check did not return a usable Google Hotels price for this stay search.",
     sourceKind: "unavailable"
   };
 }
@@ -104,7 +104,7 @@ function normalizeLodging(
     destinationSlug: context.destination.slug,
     destinationName: context.destination.name,
     status: "checked",
-    message: `Live Google Hotels ${context.mode.label.toLowerCase()} pricing sampled ${
+    message: `Google Hotels ${context.mode.label.toLowerCase()} pricing checked ${
       totals.length
     } result${totals.length === 1 ? "" : "s"}; displayed range uses the lowest ${
       displayedTotals.length
@@ -117,7 +117,7 @@ function normalizeLodging(
       data.search_metadata?.google_hotels_url ??
       googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
     sourceDetail:
-      "Live lodging sampled from SerpApi Google Hotels. The displayed range is the lowest total-stay price cluster, before detailed property review.",
+      "Lodging checked through Google Hotels. The displayed range is the lowest total-stay price cluster, before detailed property review.",
     sourceKind: "live"
   };
 }
@@ -126,7 +126,7 @@ export async function sampleSerpApiLodging(
   context: LodgingSearchContext
 ): Promise<WatchRefreshResult> {
   const key = apiKey();
-  if (!key) return unavailableResult(context, "SerpApi key is not configured.");
+  if (!key) return unavailableResult(context, "Lodging checks are not configured yet.");
 
   const params = new URLSearchParams({
     engine: "google_hotels",
@@ -153,7 +153,7 @@ export async function sampleSerpApiLodging(
     const data = (await response.json().catch(() => ({}))) as SerpApiHotelsResponse;
 
     if (!response.ok) {
-      return unavailableResult(context, data.error ?? `SerpApi returned ${response.status}.`);
+      return unavailableResult(context, data.error ?? `Lodging check returned ${response.status}.`);
     }
 
     if (data.error) return unavailableResult(context, data.error);
@@ -168,6 +168,6 @@ export async function sampleSerpApiLodging(
 
     return lodging;
   } catch (error) {
-    return unavailableResult(context, "Unable to sample SerpApi Google Hotels prices.", error);
+    return unavailableResult(context, "Unable to check Google Hotels prices.", error);
   }
 }

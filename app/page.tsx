@@ -22,7 +22,7 @@ export default async function HomePage() {
                 Curated places with enough context to compare costs, dates, scores, and tradeoffs.
               </p>
             </div>
-            <p className="text-xs text-ink/24">Live prices only when checked, cached when available.</p>
+            <p className="text-xs text-ink/24">Prices update only when checked, then stay saved.</p>
           </div>
           <DestinationGrid destinations={destinations} />
         </section>

@@ -58,7 +58,7 @@ function rowToResult(row: PriceSnapshotRow): WatchRefreshResult {
     status: row.status,
     message:
       row.status === "checked"
-        ? `Cached ${row.kind} quote from durable storage.`
+        ? `Saved ${row.kind} quote from a previous check.`
         : row.message,
     currentRange: hasRange ? { min: row.min_price!, max: row.max_price! } : undefined,
     sampledDates: row.sampled_dates ?? undefined,

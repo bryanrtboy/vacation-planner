@@ -29,10 +29,10 @@ export async function sampleMockFare({
     destinationSlug: search.destinationSlug,
     destinationName: search.destinationName,
     status: "checked",
-    message: `Mock airfare ${direction} for ${search.route} (${adults} ${
+    message: `Planning airfare estimate ${direction} for ${search.route} (${adults} ${
       adults === 1 ? "ticket" : "tickets"
-    }). Add SERPAPI_API_KEY to use live Google Flights fares.`,
-    provider: "Mock flight sampler",
+    }). Configure airfare checks to use Google Flights prices.`,
+    provider: "Planning airfare estimate",
     previousRange,
     currentRange,
     sampledDates: base.sampledDates,

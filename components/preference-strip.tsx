@@ -178,7 +178,7 @@ export function PreferenceStrip() {
             ))}
           </select>
           <span className="mt-1 block text-[11px] font-medium text-ink/42">
-            Shared D1 checks from recent airfare and lodging searches.
+            Recent checks are shared across your devices.
           </span>
         </label>
       ) : null}

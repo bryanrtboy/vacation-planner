@@ -85,7 +85,7 @@ export async function destinationSuggestionStorageState(): Promise<DestinationSu
   if (!db) {
     return {
       ready: false,
-      message: "D1 is not available, so destination suggestions cannot be saved."
+      message: "Destination idea storage is not available, so suggestions cannot be saved."
     };
   }
 
@@ -98,7 +98,7 @@ export async function destinationSuggestionStorageState(): Promise<DestinationSu
     return {
       ready: false,
       message:
-        "The destination_suggestions table is missing. Run npm run d1:migrate:remote before using Gemini suggestions."
+        "Destination idea storage is missing its suggestions table. Run npm run d1:migrate:remote before looking for new ideas."
     };
   }
 

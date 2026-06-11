@@ -409,14 +409,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const nextSnapshots = {
           ...readStoredSnapshots(),
           ...Object.fromEntries(
-            Object.entries(unavailableSnapshots(slugs, "Unable to connect to the airfare snapshot API.")).map(
+            Object.entries(unavailableSnapshots(slugs, "Unable to check airfare right now.")).map(
               ([slug, result]) => [snapshotKey(slug), result]
             )
           )
         };
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
-        setStatusMessage("Unable to connect to the airfare snapshot API.");
+        setStatusMessage("Unable to check airfare right now.");
       } finally {
         setCheckingSlugs((current) => {
           const next = new Set(current);
@@ -463,7 +463,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             : "Lodging check finished, but no live prices were returned."
         );
       } catch {
-        setLodgingStatusMessage("Unable to connect to the lodging snapshot API.");
+        setLodgingStatusMessage("Unable to check lodging right now.");
       } finally {
         setCheckingLodgingSlugs((current) => {
           const next = new Set(current);
@@ -477,7 +477,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   const suggestDestinations = useCallback(async () => {
     setSuggestingDestinations(true);
-    setSuggestionStatusMessage("Asking Gemini for destination ideas...");
+    setSuggestionStatusMessage("Looking for destination ideas...");
 
     try {
       const response = await fetch("/api/destinations/suggestions", {
@@ -495,11 +495,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setSuggestionStatusMessage(
         data.message ??
           (response.ok
-            ? "Draft destination suggestions saved."
+            ? "Suggested destination ideas saved."
             : "Unable to generate suggestions.")
       );
     } catch {
-      setSuggestionStatusMessage("Unable to connect to the destination suggestion API.");
+      setSuggestionStatusMessage("Unable to look for destination ideas right now.");
     } finally {
       setSuggestingDestinations(false);
     }
@@ -507,7 +507,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
     setReviewingSuggestionId(id);
-    setSuggestionStatusMessage(action === "accept" ? "Adding suggestion to ideas..." : "Hiding suggestion...");
+    setSuggestionStatusMessage(action === "accept" ? "Adding destination idea..." : "Hiding suggestion...");
 
     try {
       const response = await fetch("/api/destinations/suggestions", {
@@ -526,7 +526,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         window.location.reload();
       }
     } catch {
-      setSuggestionStatusMessage("Unable to connect to the destination suggestion API.");
+      setSuggestionStatusMessage("Unable to update destination ideas right now.");
     } finally {
       setReviewingSuggestionId(null);
     }
@@ -606,7 +606,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           </button>
           {aiUsage ? (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
-              {aiUsage.remaining}/{aiUsage.limit} AI left today
+              {aiUsage.remaining}/{aiUsage.limit} suggestions left today
             </span>
           ) : null}
         </span>
@@ -616,7 +616,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         <div className="mb-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink/38">
-              Draft suggestions
+              Suggested ideas
             </p>
             {suggestionStatusMessage ? (
               <p className="text-xs font-medium text-ink/54">{suggestionStatusMessage}</p>
@@ -635,7 +635,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                       <p className="text-xs font-medium text-ink/45">{suggestion.region}</p>
                     </div>
                     <span className="rounded-md bg-harbor/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-harbor">
-                      Draft
+                      Review
                     </span>
                   </div>
                   <p className="mt-2 text-xs leading-5 text-ink/64">
@@ -681,9 +681,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               checkingLodgingCount === 1 ? "trip" : "trips"
                 }...`
             : statusMessage ||
-              `Airfare checks run only when you click Check now · ${visibleCheckedCount} live fare${
+              `Use Check now on any card to refresh prices · ${visibleCheckedCount} fare${
                 visibleCheckedCount === 1 ? "" : "s"
-              } shown · ${visibleUnavailableCount} unavailable shown`}
+              } checked · ${visibleUnavailableCount} unavailable`}
           {lodgingStatusMessage ? ` · ${lodgingStatusMessage}` : ""}
         </span>
       </div>
