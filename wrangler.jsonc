@@ -10,6 +10,13 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vacation_planner",
+      "database_id": "32898303-dc54-4063-9556-ec431472dabc"
+    }
+  ],
   "observability": {
     "enabled": false,
     "logs": {

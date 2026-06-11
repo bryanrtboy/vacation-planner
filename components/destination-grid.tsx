@@ -104,6 +104,40 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateCachedSnapshots() {
+      try {
+        const response = await fetch("/api/airfare/snapshots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences, refresh: false, slugs: destinationSlugs })
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as SnapshotResponse;
+        if (cancelled || !data.results.length) return;
+
+        const nextSnapshots = { ...readStoredSnapshots() };
+        for (const result of data.results) {
+          nextSnapshots[snapshotKey(result.destinationSlug)] = result;
+        }
+
+        writeStoredSnapshots(nextSnapshots);
+        setSnapshots(nextSnapshots);
+        setUsage(data.usage);
+      } catch {
+        // Local snapshots remain the fallback when durable storage is unavailable.
+      }
+    }
+
+    void hydrateCachedSnapshots();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [destinationSlugs, preferences, snapshotKey]);
+
   const refreshFareSnapshots = useCallback(
     async (slugs: string[], options: { manual?: boolean } = {}) => {
       if (!slugs.length) return;
@@ -115,7 +149,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const response = await fetch("/api/airfare/snapshots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preferences, slugs })
+          body: JSON.stringify({ preferences, refresh: Boolean(options.manual), slugs })
         });
 
         if (!response.ok) throw new Error("Unable to refresh airfare snapshots.");

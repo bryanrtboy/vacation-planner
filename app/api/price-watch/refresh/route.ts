@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { sampleWatchedFare } from "@/lib/flights/provider";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { WATCH_MAX_DESTINATIONS, WATCH_REFRESH_STALE_HOURS } from "@/lib/settings";
+import { writePriceSnapshot } from "@/lib/storage/price-snapshot-store";
+import { airfareSnapshotSearch } from "@/lib/storage/snapshot-keys";
 import type { WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,7 +18,7 @@ function isStale(lastCheckedAt?: string) {
 
 export async function GET() {
   return NextResponse.json({
-    usage: getUsageState(),
+    usage: await getUsageState(),
     staleAfterHours: WATCH_REFRESH_STALE_HOURS,
     maxWatchedDestinations: WATCH_MAX_DESTINATIONS
   });
@@ -27,11 +29,16 @@ export async function POST(request: Request) {
   const searches = body?.searches?.slice(0, WATCH_MAX_DESTINATIONS) ?? [];
   const staleSearches = searches.filter((search) => isStale(search.lastCheckedAt));
   const skippedSearches = searches.filter((search) => !isStale(search.lastCheckedAt));
-  const reservation = tryReserveChecks(staleSearches.length);
+  const reservation = await tryReserveChecks(staleSearches.length);
   const allowedSearches = staleSearches.slice(0, reservation.allowed);
   const cappedSearches = staleSearches.slice(reservation.allowed);
 
   const checkedResults = await Promise.all(allowedSearches.map((search) => sampleWatchedFare(search)));
+  await Promise.all(
+    checkedResults.map((result, index) =>
+      writePriceSnapshot(airfareSnapshotSearch(allowedSearches[index]), result)
+    )
+  );
 
   const skippedResults: WatchRefreshResult[] = skippedSearches.map((search) => ({
     id: search.id,
@@ -56,7 +63,7 @@ export async function POST(request: Request) {
   }));
 
   return NextResponse.json({
-    usage: getUsageState(),
+    usage: await getUsageState(),
     staleAfterHours: WATCH_REFRESH_STALE_HOURS,
     maxWatchedDestinations: WATCH_MAX_DESTINATIONS,
     results: [...checkedResults, ...skippedResults, ...cappedResults]

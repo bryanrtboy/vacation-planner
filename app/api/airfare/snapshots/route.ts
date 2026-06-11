@@ -3,6 +3,11 @@ import { sampleWatchedFare } from "@/lib/flights/provider";
 import { destinations, getDestination } from "@/lib/seed-data";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { WATCH_REFRESH_STALE_HOURS } from "@/lib/settings";
+import {
+  readPriceSnapshot,
+  writePriceSnapshot
+} from "@/lib/storage/price-snapshot-store";
+import { airfareSnapshotSearch } from "@/lib/storage/snapshot-keys";
 import { defaultTripPreferences, recommendedTripWindow } from "@/lib/trip-preferences";
 import type { TripPreferences, WatchedSearch, WatchRefreshResult } from "@/lib/types";
 
@@ -40,9 +45,11 @@ function watchedSearchForSlug(slug: string, preferences: TripPreferences): Watch
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     preferences?: Partial<TripPreferences>;
+    refresh?: boolean;
     slugs?: string[];
   } | null;
   const preferences = normalizePreferences(body?.preferences);
+  const shouldRefresh = body?.refresh === true;
   const requestedSlugs = body?.slugs?.length
     ? body.slugs
     : destinations.map((destination) => destination.slug);
@@ -50,24 +57,56 @@ export async function POST(request: Request) {
   const searches = uniqueSlugs
     .map((slug) => watchedSearchForSlug(slug, preferences))
     .filter((search): search is WatchedSearch => Boolean(search));
+  const cachedPairs = await Promise.all(
+    searches.map(async (search) => ({
+      search,
+      result: await readPriceSnapshot(airfareSnapshotSearch(search), WATCH_REFRESH_STALE_HOURS)
+    }))
+  );
+  const cachedResults = cachedPairs
+    .map((pair) => pair.result)
+    .filter((result): result is WatchRefreshResult => Boolean(result));
 
-  const reservation = tryReserveChecks(searches.length);
+  if (!shouldRefresh) {
+    return NextResponse.json({
+      usage: await getUsageState(),
+      staleAfterHours: WATCH_REFRESH_STALE_HOURS,
+      results: cachedResults
+    });
+  }
+
+  const reservation = await tryReserveChecks(searches.length);
   const allowedSearches = searches.slice(0, reservation.allowed);
   const cappedSearches = searches.slice(reservation.allowed);
 
   const checkedResults = await Promise.all(allowedSearches.map((search) => sampleWatchedFare(search)));
+  await Promise.all(
+    checkedResults.map((result, index) =>
+      writePriceSnapshot(airfareSnapshotSearch(allowedSearches[index]), result)
+    )
+  );
+  const cachedBySlug = new Map(
+    cachedPairs
+      .filter((pair) => pair.result)
+      .map((pair) => [pair.search.destinationSlug, pair.result as WatchRefreshResult])
+  );
   const cappedResults: WatchRefreshResult[] = cappedSearches.map((search) => ({
-    id: search.id,
-    destinationSlug: search.destinationSlug,
-    destinationName: search.destinationName,
-    status: "capped",
-    message: "Daily airfare check cap reached. Cached or seeded airfare is still shown.",
-    retrievedAt: new Date().toISOString(),
-    sourceKind: "unavailable"
+    ...(cachedBySlug.get(search.destinationSlug) ?? {
+      id: search.id,
+      destinationSlug: search.destinationSlug,
+      destinationName: search.destinationName,
+      status: "capped" as const,
+      message: "Daily airfare check cap reached. Cached or seeded airfare is still shown.",
+      retrievedAt: new Date().toISOString(),
+      sourceKind: "unavailable" as const
+    }),
+    message: cachedBySlug.has(search.destinationSlug)
+      ? "Daily airfare check cap reached. Showing the cached durable fare."
+      : "Daily airfare check cap reached. Cached or seeded airfare is still shown."
   }));
 
   return NextResponse.json({
-    usage: getUsageState(),
+    usage: await getUsageState(),
     staleAfterHours: WATCH_REFRESH_STALE_HOURS,
     results: [...checkedResults, ...cappedResults]
   });

@@ -27,6 +27,11 @@ function readWatches(): WatchedSearch[] {
 function writeWatches(watches: WatchedSearch[]) {
   window.localStorage.setItem(storageKey, JSON.stringify(watches));
   window.dispatchEvent(new CustomEvent("artist-travel-finder:watches-changed"));
+  void fetch("/api/watches", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ watches })
+  }).catch(() => undefined);
 }
 
 function rangeLabel(range?: { min: number; max: number }) {
@@ -47,6 +52,16 @@ export function PriceWatchPanel() {
     }
 
     sync();
+    fetch("/api/watches")
+      .then((response) => response.json())
+      .then((data: { watches?: WatchedSearch[] }) => {
+        if (!data.watches?.length) return;
+        window.localStorage.setItem(storageKey, JSON.stringify(data.watches));
+        window.dispatchEvent(new CustomEvent("artist-travel-finder:watches-changed"));
+        setWatches(data.watches);
+      })
+      .catch(() => undefined);
+
     window.addEventListener("artist-travel-finder:watches-changed", sync);
     window.addEventListener("storage", sync);
     return () => {

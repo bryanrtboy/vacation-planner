@@ -37,6 +37,11 @@ function readWatches(): WatchedSearch[] {
 function writeWatches(watches: WatchedSearch[]) {
   window.localStorage.setItem(storageKey, JSON.stringify(watches));
   window.dispatchEvent(new CustomEvent("artist-travel-finder:watches-changed"));
+  void fetch("/api/watches", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ watches })
+  }).catch(() => undefined);
 }
 
 function scoreLabel(label: string) {

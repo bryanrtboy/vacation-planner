@@ -2,9 +2,13 @@ import { Header } from "@/components/header";
 import { DestinationGrid } from "@/components/destination-grid";
 import { PriceWatchPanel } from "@/components/price-watch-panel";
 import { PreferenceStrip } from "@/components/preference-strip";
-import { destinations } from "@/lib/seed-data";
+import { listDestinationCandidates } from "@/lib/storage/destination-store";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const destinations = await listDestinationCandidates();
+
   return (
     <main className="min-h-screen">
       <Header />
