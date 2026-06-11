@@ -1,4 +1,7 @@
 import type { WatchedSearch } from "@/lib/types";
+import type { Destination, TripWindow } from "@/lib/types";
+import type { LodgingMode } from "@/lib/lodging/modes";
+import { lodgingSearchQuery } from "@/lib/lodging/modes";
 
 export type PriceSnapshotKind = "airfare" | "lodging";
 
@@ -48,6 +51,25 @@ export function airfareSnapshotSearch(search: WatchedSearch): PriceSnapshotSearc
     departDate: search.departDate,
     returnDate: search.returnDate,
     adults: 1,
+    children: 0
+  };
+}
+
+export function lodgingSnapshotSearch(
+  destination: Destination,
+  tripWindow: TripWindow,
+  mode: LodgingMode
+): PriceSnapshotSearch {
+  return {
+    kind: "lodging",
+    provider: "serpapi-google-hotels",
+    destinationSlug: destination.slug,
+    destinationName: destination.name,
+    destinationQuery: lodgingSearchQuery(destination, mode),
+    departDate: tripWindow.departDate,
+    returnDate: tripWindow.returnDate,
+    mode: mode.id,
+    adults: mode.adults,
     children: 0
   };
 }

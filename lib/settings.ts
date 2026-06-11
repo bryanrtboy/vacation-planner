@@ -1,6 +1,7 @@
 export const WATCH_REFRESH_STALE_HOURS = Number(process.env.WATCH_REFRESH_STALE_HOURS ?? 24);
 export const WATCH_DAILY_CAP = Number(process.env.WATCH_DAILY_CAP ?? 25);
 export const WATCH_MAX_DESTINATIONS = Number(process.env.WATCH_MAX_DESTINATIONS ?? 20);
+export const LODGING_REFRESH_STALE_HOURS = Number(process.env.LODGING_REFRESH_STALE_HOURS ?? 72);
 
 export const defaultPreferences = {
   homeAirport: "DEN",

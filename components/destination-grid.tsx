@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DestinationCard } from "@/components/destination-card";
+import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
 import {
   defaultTripPreferences,
   readTripPreferences,
@@ -12,6 +13,7 @@ import type { Destination, UsageState, WatchRefreshResult } from "@/lib/types";
 import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
+const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -36,6 +38,22 @@ function writeStoredSnapshots(snapshots: StoredFareSnapshots) {
   window.localStorage.setItem(fareSnapshotStorageKey, JSON.stringify(snapshots));
 }
 
+function readStoredLodgingSnapshots(): StoredFareSnapshots {
+  if (typeof window === "undefined") return {};
+  const raw = window.localStorage.getItem(lodgingSnapshotStorageKey);
+  if (!raw) return {};
+
+  try {
+    return JSON.parse(raw) as StoredFareSnapshots;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredLodgingSnapshots(snapshots: StoredFareSnapshots) {
+  window.localStorage.setItem(lodgingSnapshotStorageKey, JSON.stringify(snapshots));
+}
+
 function unavailableSnapshots(slugs: string[], message: string): StoredFareSnapshots {
   const checkedAt = new Date().toISOString();
   return Object.fromEntries(
@@ -56,10 +74,15 @@ function unavailableSnapshots(slugs: string[], message: string): StoredFareSnaps
 
 export function DestinationGrid({ destinations }: { destinations: Destination[] }) {
   const [snapshots, setSnapshots] = useState<StoredFareSnapshots>(readStoredSnapshots);
+  const [lodgingSnapshots, setLodgingSnapshots] =
+    useState<StoredFareSnapshots>(readStoredLodgingSnapshots);
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
   const [usage, setUsage] = useState<UsageState | null>(null);
+  const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
+  const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
   const [statusMessage, setStatusMessage] = useState("");
+  const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -81,7 +104,19 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     },
     [preferences.departure, tripWindows]
   );
+  const lodgingMode = useMemo(
+    () => lodgingModeFromPreference(preferences.lodging),
+    [preferences.lodging]
+  );
+  const lodgingKey = useCallback(
+    (destination: Destination) => {
+      const tripWindow = tripWindows[destination.slug];
+      return lodgingSnapshotKey(destination, tripWindow, lodgingMode);
+    },
+    [lodgingMode, tripWindows]
+  );
   const checkingCount = checkingSlugs.size;
+  const checkingLodgingCount = checkingLodgingSlugs.size;
   const checkedCount = destinationSlugs.filter(
     (slug) => snapshots[snapshotKey(slug)]?.status === "checked"
   ).length;
@@ -138,6 +173,42 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     };
   }, [destinationSlugs, preferences, snapshotKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateCachedLodgingSnapshots() {
+      try {
+        const response = await fetch("/api/lodging/snapshots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences, refresh: false, slugs: destinationSlugs })
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as SnapshotResponse;
+        if (cancelled || !data.results.length) return;
+
+        const nextSnapshots = { ...readStoredLodgingSnapshots() };
+        for (const result of data.results) {
+          const destination = destinations.find((item) => item.slug === result.destinationSlug);
+          if (!destination) continue;
+          nextSnapshots[lodgingKey(destination)] = result;
+        }
+
+        writeStoredLodgingSnapshots(nextSnapshots);
+        setLodgingSnapshots(nextSnapshots);
+        setLodgingUsage(data.usage);
+      } catch {
+        // Static lodging estimates remain the fallback when durable storage is unavailable.
+      }
+    }
+
+    void hydrateCachedLodgingSnapshots();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [destinationSlugs, destinations, lodgingKey, preferences]);
+
   const refreshFareSnapshots = useCallback(
     async (slugs: string[], options: { manual?: boolean } = {}) => {
       if (!slugs.length) return;
@@ -192,17 +263,69 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     [preferences, snapshotKey]
   );
 
+  const refreshLodgingSnapshots = useCallback(
+    async (slugs: string[], options: { manual?: boolean } = {}) => {
+      if (!slugs.length) return;
+
+      setCheckingLodgingSlugs((current) => new Set([...current, ...slugs]));
+      setLodgingStatusMessage(options.manual ? "Checking lodging now..." : "Checking lodging...");
+
+      try {
+        const response = await fetch("/api/lodging/snapshots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences, refresh: Boolean(options.manual), slugs })
+        });
+
+        if (!response.ok) throw new Error("Unable to refresh lodging snapshots.");
+        const data = (await response.json()) as SnapshotResponse;
+        const nextSnapshots = { ...readStoredLodgingSnapshots() };
+
+        setLodgingUsage(data.usage);
+
+        for (const result of data.results) {
+          const destination = destinations.find((item) => item.slug === result.destinationSlug);
+          if (!destination) continue;
+          nextSnapshots[lodgingKey(destination)] = result;
+        }
+
+        writeStoredLodgingSnapshots(nextSnapshots);
+        setLodgingSnapshots(nextSnapshots);
+        setLodgingStatusMessage(
+          data.results.some((result) => result.status === "checked")
+            ? "Lodging check complete."
+            : "Lodging check finished, but no live prices were returned."
+        );
+      } catch {
+        setLodgingStatusMessage("Unable to connect to the lodging snapshot API.");
+      } finally {
+        setCheckingLodgingSlugs((current) => {
+          const next = new Set(current);
+          slugs.forEach((slug) => next.delete(slug));
+          return next;
+        });
+      }
+    },
+    [destinations, lodgingKey, preferences]
+  );
+
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-ink/8 bg-white/60 px-3 py-2 text-xs text-ink/58">
         <span>
           {checkingCount
             ? `Checking airfare for ${checkingCount} ${checkingCount === 1 ? "trip" : "trips"}...`
+            : checkingLodgingCount
+              ? `Checking lodging for ${checkingLodgingCount} ${
+                  checkingLodgingCount === 1 ? "trip" : "trips"
+                }...`
             : statusMessage ||
               `Airfare checks run only when you click Check now · ${checkedCount} live fare${
                 checkedCount === 1 ? "" : "s"
               } · ${unavailableCount} unavailable`}
           {usage ? ` · ${usage.remaining}/${usage.limit} checks left` : ""}
+          {lodgingStatusMessage ? ` · ${lodgingStatusMessage}` : ""}
+          {lodgingUsage ? ` · ${lodgingUsage.remaining}/${lodgingUsage.limit} lodging checks left` : ""}
         </span>
       </div>
 
@@ -212,8 +335,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             key={destination.slug}
             destination={destination}
             fareSnapshot={snapshots[snapshotKey(destination.slug)]}
+            lodgingMode={lodgingMode}
+            lodgingSnapshot={lodgingSnapshots[lodgingKey(destination)]}
             isCheckingFare={checkingSlugs.has(destination.slug)}
+            isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
             onCheckFare={() => void refreshFareSnapshots([destination.slug], { manual: true })}
+            onCheckLodging={() =>
+              void refreshLodgingSnapshots([destination.slug], { manual: true })
+            }
             preferences={preferences}
             tripWindow={tripWindows[destination.slug]}
           />

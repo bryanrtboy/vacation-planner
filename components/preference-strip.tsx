@@ -128,9 +128,7 @@ export function PreferenceStrip() {
         />
         <datalist id="departure-airports">
           {airportOptions.map((airport) => (
-            <option key={airport.code} value={airport.code}>
-              {airport.label}
-            </option>
+            <option key={airport.code} value={airport.code} label={`${airport.code} · ${airport.label}`} />
           ))}
         </datalist>
       </label>

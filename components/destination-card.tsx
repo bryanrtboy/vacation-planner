@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { googleFlightsSearchUrl } from "@/lib/flights/links";
+import type { LodgingMode } from "@/lib/lodging/modes";
 import { tripLengthLabel } from "@/lib/trip-preferences";
 import type {
   Destination,
@@ -141,6 +142,10 @@ function tripCostSummary(
   return `Cost around ${tripCostEstimate(destination, airfare, nights)}.`;
 }
 
+function rangeLabel(range: { min: number; max: number }) {
+  return `$${range.min.toLocaleString()}-$${range.max.toLocaleString()}`;
+}
+
 function resultAirfare(destination: Destination, result: WatchRefreshResult): PriceRange {
   if (!result.currentRange) return destination.airfare;
 
@@ -241,6 +246,16 @@ function diningPrice(price: PriceRange, nights: number): PriceRange {
       price.max * nights
     )} for ${tripLengthLabel(nights)}`
   };
+}
+
+function lodgingStayLabel(result: WatchRefreshResult, nights: number) {
+  if (!result.currentRange) return "Lodging unavailable";
+  const nightlyMin = Math.round(result.currentRange.min / nights);
+  const nightlyMax = Math.round(result.currentRange.max / nights);
+  return `${rangeLabel(result.currentRange)} stay · ${rangeLabel({
+    min: nightlyMin,
+    max: nightlyMax
+  })}/night`;
 }
 
 function linkTone() {
@@ -471,18 +486,121 @@ function CheckingPriceLink({ tripWindow }: { tripWindow: TripWindow }) {
   );
 }
 
+function LodgingPriceLink({
+  result,
+  mode,
+  tripWindow,
+  nights,
+  onCheckLodging
+}: {
+  result?: WatchRefreshResult;
+  mode: LodgingMode;
+  tripWindow: TripWindow;
+  nights: number;
+  onCheckLodging?: () => void;
+}) {
+  const checkedAt = result?.retrievedAt;
+  const wasChecked = Boolean(checkedAt);
+  const isChecked = result?.status === "checked" && result.currentRange;
+  const label = isChecked ? lodgingStayLabel(result, nights) : "Lodging not checked";
+  const status = isChecked
+    ? `${result.sourceKind === "live" ? "live checked" : "cached from"} ${shortDate(checkedAt!)}`
+    : wasChecked
+      ? `last checked ${shortDate(checkedAt!)}`
+      : "not checked yet";
+
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
+          Lodging: {mode.label}
+        </span>
+        {result?.sourceUrl ? (
+          <a
+            href={result.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-1 truncate text-sm font-semibold text-ink transition hover:text-harbor"
+          >
+            {label}
+            <ExternalLink size={12} className="shrink-0" aria-hidden="true" />
+          </a>
+        ) : (
+          <span className="inline-flex max-w-full items-center gap-1 truncate text-sm font-semibold text-ink">
+            {label}
+          </span>
+        )}
+        <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
+          Stay dates {travelDateLabel(tripWindow)} · {status}
+        </span>
+        {result && result.status !== "checked" ? (
+          <span className="mt-0.5 block text-[11px] leading-4 text-clay">{result.message}</span>
+        ) : null}
+      </span>
+      {onCheckLodging ? (
+        <button
+          type="button"
+          onClick={onCheckLodging}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2 py-1 text-xs font-semibold text-ink/70 transition hover:border-harbor/35 hover:text-harbor"
+        >
+          <RefreshCw size={12} aria-hidden="true" />
+          Check lodging
+        </button>
+      ) : null}
+      <InfoButton label={`${mode.label} lodging detail`}>
+        <span className="block font-semibold text-ink">{mode.label}</span>
+        <span className="mt-1 block">
+          {result?.message ??
+            "Live lodging has not been checked for this mode and date window yet."}
+        </span>
+        <span className="mt-2 block text-ink/38">
+          {result?.provider ?? "SerpApi Google Hotels"} · {result?.sourceKind ?? "unavailable"} ·{" "}
+          {result?.retrievedAt ? `checked ${shortDate(result.retrievedAt)}` : "not checked"}
+        </span>
+      </InfoButton>
+    </div>
+  );
+}
+
+function CheckingLodgingLink({ mode, tripWindow }: { mode: LodgingMode; tripWindow: TripWindow }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-1.5 transition hover:bg-white/70">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink/46">
+          Lodging: {mode.label}
+        </span>
+        <span className="inline-flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-ink">
+          <RefreshCw size={13} className="shrink-0 animate-spin text-harbor" aria-hidden="true" />
+          Checking lodging...
+        </span>
+        <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
+          Stay dates {travelDateLabel(tripWindow)} · querying live provider
+        </span>
+      </span>
+    </div>
+  );
+}
+
 export function DestinationCard({
   destination,
   fareSnapshot,
+  lodgingMode,
+  lodgingSnapshot,
   isCheckingFare = false,
+  isCheckingLodging = false,
   onCheckFare,
+  onCheckLodging,
   preferences,
   tripWindow
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
+  lodgingMode: LodgingMode;
+  lodgingSnapshot?: WatchRefreshResult;
   isCheckingFare?: boolean;
+  isCheckingLodging?: boolean;
   onCheckFare?: () => void;
+  onCheckLodging?: () => void;
   preferences: TripPreferences;
   tripWindow: TripWindow;
 }) {
@@ -659,6 +777,17 @@ export function DestinationCard({
                     statusText={airfareStatusText}
                   />
                 ) : null}
+                {isCheckingLodging ? (
+                  <CheckingLodgingLink mode={lodgingMode} tripWindow={tripWindow} />
+                ) : (
+                  <LodgingPriceLink
+                    result={lodgingSnapshot}
+                    mode={lodgingMode}
+                    tripWindow={tripWindow}
+                    nights={preferences.nights}
+                    onCheckLodging={onCheckLodging}
+                  />
+                )}
                 <CompactPriceLink
                   href={rentalPrice.sourceUrl}
                   label={rentalPrice.label}
