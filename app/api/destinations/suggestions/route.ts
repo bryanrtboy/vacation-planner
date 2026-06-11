@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { suggestDestinationsWithGemini } from "@/lib/ai/gemini";
+import { destinationPhotoSearchUrl, fallbackPhotoForRegion } from "@/lib/destination-photos";
 import { getUsageState, tryReserveChecks } from "@/lib/price-watch/usage-store";
 import { listDestinationCandidates, writeDestinationCandidate } from "@/lib/storage/destination-store";
 import {
@@ -20,8 +21,6 @@ import type {
 export const runtime = "nodejs";
 
 const aiUsageService = "ai";
-const fallbackPhotoUrl =
-  "https://commons.wikimedia.org/wiki/Special:FilePath/Puente%20Don%20Luis%20I%2C%20Oporto%2C%20Portugal%2C%202012-05-09%2C%20DD%2013.JPG?width=800";
 
 function slugify(value: string) {
   return value
@@ -61,6 +60,12 @@ function moodLabelFromSuggestion(payload: DestinationSuggestion["payload"]) {
   return "slow travel";
 }
 
+function transportNoteFromSuggestion(suggestion: DestinationSuggestion, airportTargets: string[]) {
+  const airports = airportTargets.filter((target) => /^[A-Z]{3}$/.test(target)).slice(0, 3);
+  const airportText = airports.length ? ` Check transfers from ${airports.join(", ")}.` : "";
+  return `Use ${suggestion.name} as the base, then verify whether the best day trips need trains, drivers, or a short rental car.${airportText} ${suggestion.payload.tradeoffs}`;
+}
+
 function normalizePreferences(preferences?: Partial<TripPreferences>): TripPreferences {
   if (!preferences) return defaultTripPreferences;
 
@@ -83,11 +88,12 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
     ? suggestion.payload.airportTargets
     : [suggestion.name];
   const moodLabel = moodLabelFromSuggestion(suggestion.payload);
+  const region = suggestion.region ?? suggestion.payload.region;
 
   return {
     slug,
     name: suggestion.name,
-    region: suggestion.region ?? suggestion.payload.region,
+    region,
     mapQuery: suggestion.name,
     tripType: suggestion.payload.lodgingAngle,
     fitSummary: suggestion.payload.whyItFits,
@@ -97,7 +103,13 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
     visualTheme: {
       accentName: "suggested idea",
       bannerClass: "bg-[linear-gradient(135deg,#12363c_0%,#336b73_52%,#8bb8b4_100%)]",
-      photoUrl: fallbackPhotoUrl,
+      photoUrl: destinationPhotoSearchUrl({
+        name: suggestion.name,
+        region,
+        moodLabel,
+        photoSearch: suggestion.payload.photoSearch,
+        fallbackUrl: fallbackPhotoForRegion(region)
+      }),
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#12363c]/96 via-[#336b73]/74 to-[#336b73]/8",
@@ -119,7 +131,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
       returnDate: "2026-10-22"
     },
     transport: "Car useful",
-    transportNote: "Suggested destination; review local transport before relying on this.",
+    transportNote: transportNoteFromSuggestion(suggestion, airportTargets),
     monthlyPotential: "Selective",
     sharedRentalPotential: "Possible",
     fit: {

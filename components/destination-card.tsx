@@ -333,6 +333,76 @@ function curatedFinds(destination: Destination) {
   ];
 }
 
+function transportAdvice(destination: Destination) {
+  const modeAdvice: Record<Destination["transport"], string> = {
+    "Train-first": "Prioritize lodging near the center or main station so trains remain the default.",
+    "No car needed": "Choose central lodging; skip car logistics unless adding a rural or beach day.",
+    "Car useful": "Use the car for day trips and landscape reach, not as the default city tool.",
+    "Driver recommended": "Budget for transfers or guides; this looks more relaxed with local driving help.",
+    "Avoid self-driving": "Use trains, taxis, ferries, or drivers instead of building the trip around a rental car."
+  };
+  const noteIsGeneric = /suggested destination|review local transport/i.test(destination.transportNote);
+
+  return (
+    <>
+      <span className="block">
+        {noteIsGeneric
+          ? `Start by checking arrival transfers into ${destination.name}, then decide whether day trips need a driver or rental car.`
+          : destination.transportNote}
+      </span>
+      <span className="mt-2 block text-ink/54">{modeAdvice[destination.transport]}</span>
+    </>
+  );
+}
+
+function lodgingFindNote(destination: Destination) {
+  return destination.curatedFinds?.find((find) => find.kind === "lodging" || find.kind === "retreat")?.note;
+}
+
+function lodgingAnchor(destination: Destination) {
+  if (destination.lodging.rental.max > 0) return destination.lodging.rental.label;
+  return destination.tripType;
+}
+
+function longStayAdvice(destination: Destination) {
+  const potentialAdvice: Record<Destination["monthlyPotential"], string> = {
+    Excellent: "Strong candidate for a 3-4 week base if lodging prices cooperate.",
+    Good: "Could work for a slower stay, but the exact neighborhood or base matters.",
+    Selective: "Better as a longer stay only if this specific trip angle is the point.",
+    Limited: "Treat as a shorter stay unless a very specific lodging setup makes it easy."
+  };
+
+  return (
+    <>
+      <span className="block">{potentialAdvice[destination.monthlyPotential]}</span>
+      <span className="mt-2 block text-ink/54">Best months: {destination.bestMonths}.</span>
+      <span className="mt-2 block text-ink/54">Anchor: {lodgingAnchor(destination)}</span>
+      <span className="mt-2 block text-ink/54">Watch: {destination.avoid}</span>
+    </>
+  );
+}
+
+function groupRentalAdvice(destination: Destination) {
+  const potentialAdvice: Record<Destination["sharedRentalPotential"], string> = {
+    Excellent: "Actively worth checking apartments, cottages, riads, or houses for a shared stay.",
+    Good: "Worth checking, especially if the stay is long enough to absorb fees and cleaning costs.",
+    Possible: "Possible, but do not assume the group option will beat simple rooms without checking.",
+    Limited: "Do not make this destination depend on finding a great shared rental."
+  };
+  const note = lodgingFindNote(destination);
+
+  return (
+    <>
+      <span className="block">{potentialAdvice[destination.sharedRentalPotential]}</span>
+      <span className="mt-2 block text-ink/54">Search angle: {lodgingAnchor(destination)}</span>
+      {note ? <span className="mt-2 block text-ink/54">{note}</span> : null}
+      {destination.lodging.rental.sourceDetail ? (
+        <span className="mt-2 block text-ink/54">{destination.lodging.rental.sourceDetail}</span>
+      ) : null}
+    </>
+  );
+}
+
 function InfoButton({
   label,
   children,
@@ -863,19 +933,19 @@ export function DestinationCard({
               <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 text-xs font-semibold text-ink ring-1 ring-ink/10">
                 {destination.transport}
                 <InfoButton label={`${destination.transport} explanation`}>
-                  {destination.transportNote}
+                  {transportAdvice(destination)}
                 </InfoButton>
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink/62">
                 Long stay: {destination.monthlyPotential}
                 <InfoButton label={`${destination.name} long stay potential`}>
-                  How well this works as a slower 3-4 week base, not just a short visit.
+                  {longStayAdvice(destination)}
                 </InfoButton>
               </span>
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink/62">
                 Group rental: {destination.sharedRentalPotential}
                 <InfoButton label={`${destination.name} group rental potential`}>
-                  How plausible this looks for an apartment, cottage, or shared house stay.
+                  {groupRentalAdvice(destination)}
                 </InfoButton>
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-clay/20 bg-clay/5 px-2.5 py-1.5 text-xs font-medium text-ink/70">
