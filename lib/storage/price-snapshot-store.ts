@@ -129,7 +129,7 @@ function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
     destinationSlug: row.destination_slug,
     destinationName: row.destination_name,
     departure: row.origin ?? undefined,
-    flightCount: row.kind === "airfare" ? row.adults ?? undefined : undefined,
+    flightCount: row.adults ?? undefined,
     nights,
     lodging,
     departDate: row.depart_date ?? undefined,

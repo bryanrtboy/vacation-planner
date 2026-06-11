@@ -7,6 +7,7 @@ import {
   minimumFlightCountForLodging,
   normalizeFlightCount,
   readTripPreferences,
+  savedSearchSelectedEvent,
   tripLengthLabel,
   writeTripPreferences
 } from "@/lib/trip-preferences";
@@ -161,16 +162,26 @@ export function PreferenceStrip() {
               if (savedSearch.flightCount) next.flightCount = savedSearch.flightCount;
               if (savedSearch.nights) next.nights = savedSearch.nights;
               if (savedSearch.lodging) next.lodging = savedSearch.lodging;
+              if (savedSearch.departDate && savedSearch.returnDate) {
+                next.departDate = savedSearch.departDate;
+                next.returnDate = savedSearch.returnDate;
+                next.travelSeason = "saved";
+              }
 
               setCustomNightsOpen(
                 Boolean(savedSearch.nights) &&
                   !nightOptions.some((option) => option.value === savedSearch.nights)
               );
               updatePreferences(next);
+              window.dispatchEvent(
+                new CustomEvent(savedSearchSelectedEvent, {
+                  detail: savedSearch
+                })
+              );
               event.target.value = "";
             }}
           >
-            <option value="">Apply a shared saved check...</option>
+            <option value="">Open a recent saved check...</option>
             {savedSearches.map((savedSearch) => (
               <option key={savedSearch.id} value={savedSearch.id}>
                 {savedSearch.label} · {savedSearch.detail}
@@ -178,7 +189,7 @@ export function PreferenceStrip() {
             ))}
           </select>
           <span className="mt-1 block text-[11px] font-medium text-ink/42">
-            Recent checks are shared across your devices.
+            Opens that destination with its saved dates and settings.
           </span>
         </label>
       ) : null}

@@ -3,6 +3,7 @@ import type { Destination, TripPreferences, TripSeason, TripWindow } from "@/lib
 
 export const tripPreferencesStorageKey = "artist-travel-finder:preferences";
 export const tripPreferencesChangedEvent = "artist-travel-finder:preferences-changed";
+export const savedSearchSelectedEvent = "artist-travel-finder:saved-search-selected";
 
 export const defaultTripPreferences: TripPreferences = {
   departure: defaultPreferences.homeAirport,

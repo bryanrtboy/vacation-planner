@@ -8,6 +8,7 @@ import {
   defaultTripPreferences,
   readTripPreferences,
   recommendedTripWindow,
+  savedSearchSelectedEvent,
   tripPreferencesChangedEvent
 } from "@/lib/trip-preferences";
 import type {
@@ -181,6 +182,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [aiUsage, setAiUsage] = useState<UsageState | null>(null);
   const [suggestions, setSuggestions] = useState<DestinationSuggestion[]>([]);
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
+  const [focusedSavedSearch, setFocusedSavedSearch] = useState<SavedSearchSummary | null>(null);
   const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
   const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(() => new Set());
   const [checkingLodgingSlugs, setCheckingLodgingSlugs] = useState<Set<string>>(() => new Set());
@@ -202,6 +204,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     [destinations]
   );
   const filteredDestinations = useMemo(() => {
+    if (focusedSavedSearch) {
+      return destinations.filter(
+        (destination) => destination.slug === focusedSavedSearch.destinationSlug
+      );
+    }
+
     const filtered = destinations.filter((destination) => {
       const regionMatches =
         regionFilter === allRegionsFilter || destination.region === regionFilter;
@@ -217,7 +225,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       const scoreDelta = b.fit[scoreSort] - a.fit[scoreSort];
       return scoreDelta || a.name.localeCompare(b.name);
     });
-  }, [destinations, preferences.interests, regionFilter, scoreSort, transportFilter]);
+  }, [
+    destinations,
+    focusedSavedSearch,
+    preferences.interests,
+    regionFilter,
+    scoreSort,
+    transportFilter
+  ]);
   const visibleDestinations = useMemo(
     () => filteredDestinations.slice(0, visibleCount),
     [filteredDestinations, visibleCount]
@@ -262,7 +277,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const filtersActive =
     regionFilter !== allRegionsFilter ||
     transportFilter !== allTransportFilter ||
-    scoreSort !== noScoreSort;
+    scoreSort !== noScoreSort ||
+    Boolean(focusedSavedSearch);
   const refreshSavedSearches = useCallback(async () => {
     try {
       const response = await fetch("/api/saved-searches");
@@ -611,6 +627,30 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     [hydrateScenarioSnapshots]
   );
 
+  useEffect(() => {
+    function handleSavedSearchSelected(event: Event) {
+      const savedSearch = (event as CustomEvent<SavedSearchSummary>).detail;
+      if (!savedSearch?.destinationSlug) return;
+
+      setFocusedSavedSearch(savedSearch);
+      setRegionFilter(allRegionsFilter);
+      setTransportFilter(allTransportFilter);
+      setScoreSort(noScoreSort);
+      setVisibleCount(initialVisibleDestinations);
+
+      const destination = destinations.find(
+        (item) => item.slug === savedSearch.destinationSlug
+      );
+      if (!destination) return;
+      updateCardScenario(destination, readTripPreferences());
+    }
+
+    window.addEventListener(savedSearchSelectedEvent, handleSavedSearchSelected);
+    return () => {
+      window.removeEventListener(savedSearchSelectedEvent, handleSavedSearchSelected);
+    };
+  }, [destinations, updateCardScenario]);
+
   const suggestDestinations = useCallback(async () => {
     setSuggestingDestinations(true);
     setSuggestionStatusMessage("Looking for destination ideas...");
@@ -721,6 +761,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           <button
             type="button"
             onClick={() => {
+              setFocusedSavedSearch(null);
               setRegionFilter(allRegionsFilter);
               setTransportFilter(allTransportFilter);
               setScoreSort(noScoreSort);
@@ -747,6 +788,25 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           ) : null}
         </span>
       </div>
+
+      {focusedSavedSearch ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-harbor/18 bg-harbor/8 px-3 py-2 text-xs text-ink/62">
+          <span>
+            Viewing saved check:{" "}
+            <span className="font-semibold text-ink">
+              {focusedSavedSearch.destinationName}
+            </span>{" "}
+            · {focusedSavedSearch.detail}
+          </span>
+          <button
+            type="button"
+            onClick={() => setFocusedSavedSearch(null)}
+            className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+          >
+            Show all ideas
+          </button>
+        </div>
+      ) : null}
 
       {suggestions.length || suggestionStatusMessage ? (
         <div className="mb-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3">
