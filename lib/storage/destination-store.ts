@@ -1,9 +1,5 @@
 import { destinations as seedDestinations } from "@/lib/seed-data";
-import {
-  defaultFallbackPhoto,
-  destinationPhotoSearchUrlFromDestination,
-  fallbackPhotoForRegion
-} from "@/lib/destination-photos";
+import { defaultFallbackPhoto } from "@/lib/destination-photos";
 import { withDiningFallback } from "@/lib/dining-estimates";
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import type { Destination } from "@/lib/types";
@@ -38,12 +34,9 @@ function withFallbacks(destination: Destination): Destination {
   const seedPhoto = seedBySlug.get(destination.slug)?.visualTheme.photoUrl;
   const moodLabel = moodLabelFromDestination(destination);
   const existingPhoto = destination.visualTheme.photoUrl;
-  const fallbackPhoto = seedPhoto ?? fallbackPhotoForRegion(destination.region);
-  const photoUrl =
-    seedPhoto ??
-    (!existingPhoto || existingPhoto === defaultFallbackPhoto
-      ? destinationPhotoSearchUrlFromDestination(destination, moodLabel)
-      : existingPhoto || fallbackPhoto);
+  const generatedPlaceholder =
+    existingPhoto === defaultFallbackPhoto || existingPhoto.startsWith("/api/destinations/photo");
+  const photoUrl = seedPhoto ?? (generatedPlaceholder ? "" : existingPhoto);
 
   return withDiningFallback({
     ...destination,

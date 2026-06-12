@@ -572,6 +572,7 @@ function PhotoTools({
   const [value, setValue] = useState(photoUrl);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const hasPhoto = Boolean(photoUrl.trim());
   const sourceUrl = destination.visualTheme.photoSourceUrl ?? photoUrl;
 
   async function savePhoto() {
@@ -611,20 +612,22 @@ function PhotoTools({
         aria-expanded={open}
       >
         <ImageIcon size={14} aria-hidden="true" />
-        Photo
+        {hasPhoto ? "Photo" : "Add photo"}
       </button>
       {open ? (
         <div className="absolute right-0 mt-2 w-[min(82vw,22rem)] rounded-md border border-ink/12 bg-white p-3 text-left text-xs leading-5 text-ink shadow-soft">
           <div className="flex flex-wrap gap-2">
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 font-semibold text-ink/64 transition hover:border-harbor/35 hover:text-harbor"
-            >
-              <ExternalLink size={12} aria-hidden="true" />
-              View image
-            </a>
+            {hasPhoto ? (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 font-semibold text-ink/64 transition hover:border-harbor/35 hover:text-harbor"
+              >
+                <ExternalLink size={12} aria-hidden="true" />
+                View image
+              </a>
+            ) : null}
             <a
               href={imageSearchUrl(destination)}
               target="_blank"

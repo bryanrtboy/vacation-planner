@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { suggestDestinationsWithGemini } from "@/lib/ai/gemini";
-import { destinationPhotoSearchUrl, fallbackPhotoForRegion } from "@/lib/destination-photos";
 import { fallbackDiningEstimate } from "@/lib/dining-estimates";
 import {
   getUsageState,
@@ -258,13 +257,7 @@ function candidateFromSuggestion(suggestion: DestinationSuggestion): Destination
     visualTheme: {
       accentName: "suggested idea",
       bannerClass: "bg-[linear-gradient(135deg,#12363c_0%,#336b73_52%,#8bb8b4_100%)]",
-      photoUrl: destinationPhotoSearchUrl({
-        name: suggestion.name,
-        region,
-        moodLabel,
-        photoSearch: suggestion.payload.photoSearch,
-        fallbackUrl: fallbackPhotoForRegion(region)
-      }),
+      photoUrl: "",
       photoPosition: "center",
       photoOverlay: "linear-gradient(rgba(0,0,0,0),rgba(0,0,0,0))",
       heroOverlayClass: "from-[#12363c]/96 via-[#336b73]/74 to-[#336b73]/8",
