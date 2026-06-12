@@ -22,3 +22,18 @@ export function googleHotelsSearchUrl(
 
   return `https://www.google.com/travel/search?${params.toString()}`;
 }
+
+export function lodgingInspectUrl(
+  destination: Destination,
+  tripWindow: TripWindow,
+  mode: LodgingMode
+) {
+  const params = new URLSearchParams({
+    slug: destination.slug,
+    mode: mode.id,
+    departDate: tripWindow.departDate,
+    returnDate: tripWindow.returnDate
+  });
+
+  return `/api/lodging/inspect?${params.toString()}`;
+}

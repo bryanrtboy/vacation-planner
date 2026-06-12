@@ -1,4 +1,4 @@
-import { googleHotelsSearchUrl } from "@/lib/lodging/links";
+import { googleHotelsSearchUrl, lodgingInspectUrl } from "@/lib/lodging/links";
 import { lodgingSearchQuery, type LodgingMode } from "@/lib/lodging/modes";
 import type { Destination, TripWindow, WatchRefreshResult } from "@/lib/types";
 
@@ -15,6 +15,11 @@ type SerpApiHotelProperty = {
   link?: string;
   price?: string;
   extracted_price?: number;
+  overall_rating?: number;
+  rating?: number;
+  reviews?: number;
+  hotel_class?: string;
+  extracted_hotel_class?: number;
   rate_per_night?: SerpApiRate;
   total_rate?: SerpApiRate;
 };
@@ -50,6 +55,13 @@ function numericRate(...values: unknown[]) {
   );
 }
 
+function numericCount(...values: unknown[]) {
+  return values.find(
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0
+  );
+}
+
 function totalRate(property: SerpApiHotelProperty, nights: number) {
   const total = numericRate(
     property.total_rate?.extracted_lowest,
@@ -79,19 +91,39 @@ function totalRate(property: SerpApiHotelProperty, nights: number) {
 
 type LodgingCandidate = {
   name: string;
+  link?: string;
+  propertyType?: string;
+  rating?: number;
+  reviews?: number;
+  hotelClass?: number;
   nightly: number;
   total: number;
+  source: "representative" | "low-price";
+  excludedReason?: string;
+};
+
+export type LodgingInspection = {
+  result: WatchRefreshResult | null;
+  rawCandidates: LodgingCandidate[];
+  compatibleCandidates: LodgingCandidate[];
+  summarizedCandidates: LodgingCandidate[];
+  query: string;
+  googleSearchUrl: string;
 };
 
 const outdoorLodgingPattern =
   /\b(camp|camping|campsite|tent|rv|yurt|glamping|hostel|dorm|shared room)\b/i;
 const hotelBrandPattern =
-  /\b(hotel|inn|motel|hilton|hyatt|marriott|sheraton|wyndham|la quinta|holiday inn|quality inn|comfort inn|hampton|home2|candlewood|best western|travelodge|days inn|super 8)\b/i;
+  /\b(hotel|inn|motel|aparthotel|hilton|hyatt|marriott|sheraton|wyndham|la quinta|holiday inn|quality inn|comfort inn|hampton|home2|candlewood|best western|travelodge|days inn|super 8)\b/i;
 const homeRentalPattern =
-  /\b(apartment|studio|condo|flat|loft|bungalow|cottage|guesthouse|guest house|house|home|cabin|suite|retreat|townhouse|villa)\b/i;
+  /\b(apartment|studio|condo|flat|loft|bungalow|cottage|guesthouse|guest house|house|home|cabin|suite|retreat|townhouse|villa|riad|rental)\b/i;
 const groupRentalPattern = /\b(house|home|cottage|cabin|villa|townhouse|retreat|bungalow)\b/i;
 
-function candidateForProperty(property: SerpApiHotelProperty, nights: number): LodgingCandidate | null {
+function candidateForProperty(
+  property: SerpApiHotelProperty,
+  nights: number,
+  source: LodgingCandidate["source"]
+): LodgingCandidate | null {
   const total = totalRate(property, nights);
   if (typeof total !== "number") return null;
 
@@ -100,19 +132,84 @@ function candidateForProperty(property: SerpApiHotelProperty, nights: number): L
 
   return {
     name: property.name ?? "Unnamed lodging",
+    link: property.link,
+    propertyType: property.type,
+    rating: numericRate(property.overall_rating, property.rating),
+    reviews: numericCount(property.reviews),
+    hotelClass: numericRate(property.extracted_hotel_class),
     nightly,
-    total
+    total,
+    source
   };
 }
 
-function candidateMatchesMode(candidate: LodgingCandidate, mode: LodgingMode) {
-  if (outdoorLodgingPattern.test(candidate.name)) return false;
+function normalizedCandidateName(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
 
-  if (mode.id === "hotel") return !outdoorLodgingPattern.test(candidate.name);
-  if (hotelBrandPattern.test(candidate.name)) return false;
-  if (mode.id === "group-house") return groupRentalPattern.test(candidate.name);
+function uniqueCandidates(candidates: LodgingCandidate[]) {
+  const byName = new Map<string, LodgingCandidate>();
+  for (const candidate of candidates) {
+    const key = normalizedCandidateName(candidate.name);
+    const current = byName.get(key);
+    if (
+      !current ||
+      candidate.source === "representative" ||
+      (current.source !== "representative" && candidate.total < current.total)
+    ) {
+      byName.set(key, candidate);
+    }
+  }
+  return [...byName.values()];
+}
 
-  return homeRentalPattern.test(candidate.name);
+function candidateModeRejection(candidate: LodgingCandidate, mode: LodgingMode) {
+  const searchText = `${candidate.name} ${candidate.propertyType ?? ""}`;
+  if (outdoorLodgingPattern.test(searchText)) return "Outdoor, camping, hostel, or shared lodging";
+
+  if (mode.id === "hotel") return undefined;
+  if (hotelBrandPattern.test(searchText)) return "Hotel result in rental mode";
+  if (mode.id === "group-house" && !groupRentalPattern.test(searchText)) {
+    return "Not clearly a house or group rental";
+  }
+  if (mode.id !== "group-house" && !homeRentalPattern.test(searchText)) {
+    return "Not clearly an apartment, studio, condo, or home rental";
+  }
+
+  return undefined;
+}
+
+function candidateQualityRejection(candidate: LodgingCandidate, mode: LodgingMode) {
+  if (mode.id === "hotel" && typeof candidate.hotelClass === "number" && candidate.hotelClass < 3) {
+    return "Below 3-star hotel class";
+  }
+
+  if (typeof candidate.rating !== "number") return "No guest rating";
+
+  const reviews = candidate.reviews ?? 0;
+  if (reviews >= 30 && candidate.rating < 4.3) {
+    return "Low guest rating for a well-reviewed stay";
+  }
+  if (reviews >= 8 && candidate.rating < 4.15) {
+    return "Low guest rating";
+  }
+
+  return undefined;
+}
+
+function hasUsefulRating(candidate: LodgingCandidate) {
+  return (
+    typeof candidate.rating === "number" &&
+    candidate.rating >= 4.3 &&
+    typeof candidate.reviews === "number" &&
+    candidate.reviews >= 8
+  );
 }
 
 function median(values: number[]) {
@@ -148,13 +245,95 @@ function percentile(values: number[], percentileValue: number) {
 
 function representativeRange(candidates: LodgingCandidate[]) {
   const totals = candidates.map((candidate) => candidate.total);
-  const min = percentile(totals, candidates.length >= 8 ? 0.4 : 0.35);
-  const max = percentile(totals, candidates.length >= 8 ? 0.75 : 0.7);
+  const min = percentile(totals, candidates.length >= 8 ? 0.32 : 0.25);
+  const max = percentile(totals, candidates.length >= 8 ? 0.62 : 0.6);
   if (typeof min !== "number" || typeof max !== "number") return null;
   return {
     min: Math.round(Math.min(min, max)),
     max: Math.round(Math.max(min, max))
   };
+}
+
+function regionalPlanningNightlyFloor(context: LodgingSearchContext) {
+  const region = context.destination.region.toLowerCase();
+  const modeMultiplier = context.mode.id === "group-house" ? 1.8 : 1;
+
+  if (region.includes("united states") || region.includes("canada")) return 120 * modeMultiplier;
+  if (
+    region.includes("france") ||
+    region.includes("italy") ||
+    region.includes("spain") ||
+    region.includes("portugal") ||
+    region.includes("austria") ||
+    region.includes("slovenia") ||
+    region.includes("europe")
+  ) {
+    return 85 * modeMultiplier;
+  }
+  if (region.includes("japan")) return 70 * modeMultiplier;
+  if (region.includes("mexico") || region.includes("morocco")) return 55 * modeMultiplier;
+
+  return 75 * modeMultiplier;
+}
+
+function planningRange(candidates: LodgingCandidate[], context: LodgingSearchContext, nights: number) {
+  const representative = candidates
+    .filter((candidate) => candidate.source === "representative")
+    .sort((first, second) => first.total - second.total);
+  const lowPrice = candidates
+    .filter((candidate) => candidate.source === "low-price")
+    .sort((first, second) => first.total - second.total);
+
+  if (representative.length >= 4 && lowPrice.length >= 4) {
+    const representativeLow = percentile(
+      representative.map((candidate) => candidate.total),
+      representative.length >= 8 ? 0.32 : 0.25
+    );
+    const representativeHigh = percentile(
+      representative.map((candidate) => candidate.total),
+      representative.length >= 8 ? 0.82 : 0.75
+    );
+    const lowPriceLow = percentile(
+      lowPrice.map((candidate) => candidate.total),
+      lowPrice.length >= 8 ? 0.48 : 0.45
+    );
+    const lowPriceHigh = percentile(
+      lowPrice.map((candidate) => candidate.total),
+      lowPrice.length >= 8 ? 0.72 : 0.7
+    );
+    const representativeMedian = percentile(representative.map((candidate) => candidate.total), 0.5);
+    const lowPriceMedian = percentile(lowPrice.map((candidate) => candidate.total), 0.5);
+
+    if (
+      typeof representativeLow === "number" &&
+      typeof representativeHigh === "number" &&
+      typeof lowPriceLow === "number" &&
+      typeof lowPriceHigh === "number" &&
+      typeof representativeMedian === "number" &&
+      typeof lowPriceMedian === "number"
+    ) {
+      const lowPriceMedianNightly = lowPriceMedian / nights;
+      const lowPriceIsPlanningQuality =
+        lowPriceMedianNightly >= regionalPlanningNightlyFloor(context);
+      const representativeLooksOverpriced = representativeMedian > lowPriceMedian * 1.35;
+      const planningFloor = regionalPlanningNightlyFloor(context) * nights;
+      const min =
+        lowPriceIsPlanningQuality && representativeLooksOverpriced
+          ? lowPriceMedian
+          : Math.max(representativeMedian, representativeLow, planningFloor);
+      const max =
+        lowPriceIsPlanningQuality && representativeLooksOverpriced
+          ? lowPriceHigh
+          : Math.max(min, representativeHigh);
+
+      return {
+        min: Math.round(Math.min(min, max)),
+        max: Math.round(Math.max(min, max))
+      };
+    }
+  }
+
+  return representativeRange(candidates);
 }
 
 function unavailableResult(
@@ -180,53 +359,12 @@ function unavailableResult(
   };
 }
 
-function normalizeLodging(
-  data: SerpApiHotelsResponse,
-  context: LodgingSearchContext
-): WatchRefreshResult | null {
-  const nights = nightsBetween(context.tripWindow);
-  const rawCandidates = (data.properties ?? [])
-    .map((property) => candidateForProperty(property, nights))
-    .filter((candidate): candidate is LodgingCandidate => Boolean(candidate));
-  const modeCandidates = rawCandidates.filter((candidate) =>
-    candidateMatchesMode(candidate, context.mode)
-  );
-  const candidates = removeOutliers(modeCandidates).sort(
-    (first, second) => first.total - second.total
-  );
-  const range = representativeRange(candidates);
-
-  if (!range) return null;
-
-  return {
-    id: `${context.destination.slug}-${context.mode.id}-lodging`,
-    destinationSlug: context.destination.slug,
-    destinationName: context.destination.name,
-    status: "checked",
-    message: `Google Hotels ${context.mode.label.toLowerCase()} pricing checked ${
-      rawCandidates.length
-    } result${rawCandidates.length === 1 ? "" : "s"}; displayed range uses the mid-market ${
-      context.mode.label.toLowerCase()
-    } results after filtering mismatched lodging types and outliers.`,
-    provider: "SerpApi Google Hotels",
-    currentRange: range,
-    sampledDates: `${context.tripWindow.departDate}-${context.tripWindow.returnDate}`,
-    retrievedAt: new Date().toISOString(),
-    sourceDetail:
-      `Lodging checked through Google Hotels using exact SerpApi dates without lowest-price sorting. Filtered ${rawCandidates.length} raw result${
-        rawCandidates.length === 1 ? "" : "s"
-      } to ${modeCandidates.length} ${context.mode.label.toLowerCase()}-compatible result${
-        modeCandidates.length === 1 ? "" : "s"
-      }, removed outliers, and summarized a mid-market representative total-stay range instead of the cheapest listings. Google Travel public links may ignore date parameters, so this checked quote is not linked as an exact booking URL.`,
-    sourceKind: "live"
-  };
-}
-
-export async function sampleSerpApiLodging(
-  context: LodgingSearchContext
-): Promise<WatchRefreshResult> {
+function serpApiParams(
+  context: LodgingSearchContext,
+  sort: LodgingCandidate["source"]
+) {
   const key = apiKey();
-  if (!key) return unavailableResult(context, "Lodging checks are not configured yet.");
+  if (!key) return null;
 
   const params = new URLSearchParams({
     engine: "google_hotels",
@@ -241,31 +379,153 @@ export async function sampleSerpApiLodging(
     gl: "us"
   });
 
+  if (sort === "low-price") {
+    params.set("sort_by", "3");
+  }
+
   if (context.mode.vacationRental) {
     params.set("vacation_rentals", "true");
   } else {
     params.set("hotel_class", "3,4");
   }
 
+  return params;
+}
+
+async function fetchSerpApiHotels(
+  context: LodgingSearchContext,
+  sort: LodgingCandidate["source"]
+) {
+  const params = serpApiParams(context, sort);
+  if (!params) throw new Error("Lodging checks are not configured yet.");
+
+  const response = await fetch(`${serpApiEndpoint}?${params.toString()}`);
+  const data = (await response.json().catch(() => ({}))) as SerpApiHotelsResponse;
+
+  if (!response.ok) {
+    throw new Error(data.error ?? `Lodging check returned ${response.status}.`);
+  }
+
+  if (data.error) throw new Error(data.error);
+  return { data, source: sort };
+}
+
+function normalizeLodging(
+  responses: { data: SerpApiHotelsResponse; source: LodgingCandidate["source"] }[],
+  context: LodgingSearchContext
+): LodgingInspection {
+  const nights = nightsBetween(context.tripWindow);
+  const rawCandidates = uniqueCandidates(
+    responses.flatMap(({ data, source }) =>
+      (data.properties ?? []).map((property) => candidateForProperty(property, nights, source))
+    )
+      .filter((candidate): candidate is LodgingCandidate => Boolean(candidate))
+  );
+  const annotatedCandidates = rawCandidates.map((candidate) => ({
+    ...candidate,
+    excludedReason:
+      candidateModeRejection(candidate, context.mode) ??
+      candidateQualityRejection(candidate, context.mode)
+  }));
+  const qualityCandidates = annotatedCandidates.filter((candidate) => !candidate.excludedReason);
+  const ratedCandidates = qualityCandidates.filter(hasUsefulRating);
+  const pricingCandidates =
+    ratedCandidates.length >= 4
+      ? ratedCandidates
+      : qualityCandidates.length >= 4
+        ? qualityCandidates
+        : [];
+  const candidates = removeOutliers(pricingCandidates).sort(
+    (first, second) => first.total - second.total
+  );
+  const range = planningRange(candidates, context, nights);
+  const query = lodgingSearchQuery(context.destination, context.mode);
+  const googleSearchUrl = googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode);
+
+  if (!range) {
+    return {
+      result: null,
+      rawCandidates: annotatedCandidates,
+      compatibleCandidates: pricingCandidates,
+      summarizedCandidates: candidates,
+      query,
+      googleSearchUrl
+    };
+  }
+
+  const result: WatchRefreshResult = {
+    id: `${context.destination.slug}-${context.mode.id}-lodging`,
+    destinationSlug: context.destination.slug,
+    destinationName: context.destination.name,
+    status: "checked",
+    message: `Google Hotels ${context.mode.label.toLowerCase()} pricing checked ${
+      rawCandidates.length
+    } unique result${rawCandidates.length === 1 ? "" : "s"}; displayed range uses a trimmed representative ${
+      context.mode.label.toLowerCase()
+    } band after filtering mismatched lodging types and outliers.`,
+    provider: "SerpApi Google Hotels",
+    currentRange: range,
+    sampledDates: `${context.tripWindow.departDate}-${context.tripWindow.returnDate}`,
+    retrievedAt: new Date().toISOString(),
+    sourceUrl: lodgingInspectUrl(context.destination, context.tripWindow, context.mode),
+    sourceDetail:
+      `Lodging checked through Google Hotels using exact SerpApi dates with both representative and low-price result sets. Filtered ${rawCandidates.length} unique result${
+      rawCandidates.length === 1 ? "" : "s"
+      } to ${pricingCandidates.length} quality-compatible ${context.mode.label.toLowerCase()} result${
+        pricingCandidates.length === 1 ? "" : "s"
+      }, required guest ratings when enough rated stays were available, removed outliers, and summarized a trimmed representative total-stay range instead of the cheapest or highest listings. Google Travel public links may require confirming dates manually; the checked estimate comes from SerpApi date parameters.`,
+    sourceKind: "live"
+  };
+
+  return {
+    result,
+    rawCandidates: annotatedCandidates,
+    compatibleCandidates: pricingCandidates,
+    summarizedCandidates: candidates,
+    query,
+    googleSearchUrl
+  };
+}
+
+export async function inspectSerpApiLodging(context: LodgingSearchContext): Promise<LodgingInspection> {
+  const key = apiKey();
+  if (!key) {
+    throw new Error("Lodging checks are not configured yet.");
+  }
+
+  const responses = await Promise.allSettled([
+    fetchSerpApiHotels(context, "representative"),
+    fetchSerpApiHotels(context, "low-price")
+  ]);
+  const successfulResponses = responses
+    .filter((response): response is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchSerpApiHotels>>> =>
+      response.status === "fulfilled"
+    )
+    .map((response) => response.value);
+
+  if (!successfulResponses.length) {
+    const error = responses.find(
+      (response): response is PromiseRejectedResult => response.status === "rejected"
+    )?.reason;
+    throw error instanceof Error ? error : new Error("No lodging results returned.");
+  }
+
+  return normalizeLodging(successfulResponses, context);
+}
+
+export async function sampleSerpApiLodging(
+  context: LodgingSearchContext
+): Promise<WatchRefreshResult> {
   try {
-    const response = await fetch(`${serpApiEndpoint}?${params.toString()}`);
-    const data = (await response.json().catch(() => ({}))) as SerpApiHotelsResponse;
-
-    if (!response.ok) {
-      return unavailableResult(context, data.error ?? `Lodging check returned ${response.status}.`);
-    }
-
-    if (data.error) return unavailableResult(context, data.error);
-
-    const lodging = normalizeLodging(data, context);
-    if (!lodging) {
+    const inspection = await inspectSerpApiLodging(context);
+    if (!inspection.result) {
       return unavailableResult(
         context,
         `No Google Hotels prices were returned for ${context.mode.label.toLowerCase()}.`
       );
     }
 
-    return lodging;
+    return inspection.result;
   } catch (error) {
     return unavailableResult(context, "Unable to check Google Hotels prices.", error);
   }

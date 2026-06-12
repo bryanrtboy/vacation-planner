@@ -62,7 +62,7 @@ export function lodgingSnapshotSearch(
 ): PriceSnapshotSearch {
   return {
     kind: "lodging",
-    provider: "serpapi-google-hotels-v5",
+    provider: "serpapi-google-hotels-v7",
     destinationSlug: destination.slug,
     destinationName: destination.name,
     destinationQuery: lodgingSearchQuery(destination, mode),

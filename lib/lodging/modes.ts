@@ -50,5 +50,5 @@ export function lodgingSnapshotKey(
   tripWindow: TripWindow,
   mode: LodgingMode
 ) {
-  return `v5:${destination.slug}:${mode.id}:${tripWindow.departDate}:${tripWindow.returnDate}:${mode.adults}`;
+  return `v7:${destination.slug}:${mode.id}:${tripWindow.departDate}:${tripWindow.returnDate}:${mode.adults}`;
 }
