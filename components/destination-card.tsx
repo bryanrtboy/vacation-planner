@@ -297,12 +297,50 @@ function diningPrice(price: PriceRange, nights: number): PriceRange {
 
 function lodgingStayLabel(result: WatchRefreshResult, nights: number) {
   if (!result.currentRange) return "Lodging unavailable";
-  const nightlyMin = Math.round(result.currentRange.min / nights);
-  const nightlyMax = Math.round(result.currentRange.max / nights);
+  const checkedNights = lodgingSnapshotNights(result) ?? nights;
+  const nightlyMin = Math.round(result.currentRange.min / checkedNights);
+  const nightlyMax = Math.round(result.currentRange.max / checkedNights);
   return `${rangeLabel(result.currentRange)} stay · ${rangeLabel({
     min: nightlyMin,
     max: nightlyMax
   })}/night`;
+}
+
+function lodgingSnapshotDates(result?: WatchRefreshResult) {
+  const match = result?.sampledDates?.match(/^(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})$/);
+  if (!match) return undefined;
+  return {
+    departDate: match[1],
+    returnDate: match[2],
+    label: `${shortDate(match[1])}-${shortDate(match[2])}`
+  };
+}
+
+function nightsBetweenDates(departDate: string, returnDate: string) {
+  const start = new Date(`${departDate}T00:00:00Z`).getTime();
+  const end = new Date(`${returnDate}T00:00:00Z`).getTime();
+  const nights = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(nights) && nights > 0 ? nights : undefined;
+}
+
+function lodgingSnapshotNights(result?: WatchRefreshResult) {
+  const dates = lodgingSnapshotDates(result);
+  return dates ? nightsBetweenDates(dates.departDate, dates.returnDate) : undefined;
+}
+
+function lodgingSnapshotMatchesTripWindow(result: WatchRefreshResult | undefined, tripWindow: TripWindow) {
+  const dates = lodgingSnapshotDates(result);
+  if (!result || !dates) return true;
+  return dates.departDate === tripWindow.departDate && dates.returnDate === tripWindow.returnDate;
+}
+
+function lodgingSnapshotStayLabel(result: WatchRefreshResult | undefined, tripWindow: TripWindow, nights: number) {
+  const dates = lodgingSnapshotDates(result);
+  const checkedNights = lodgingSnapshotNights(result) ?? nights;
+  return {
+    dateLabel: dates?.label ?? travelDateLabel(tripWindow),
+    nightsLabel: tripLengthLabel(checkedNights)
+  };
 }
 
 function lodgingCheckLabel(mode: LodgingMode, wasChecked: boolean) {
@@ -1139,6 +1177,7 @@ function LodgingPriceLink({
   const wasChecked = Boolean(checkedAt);
   const checkedResult = result?.status === "checked" && result.currentRange ? result : undefined;
   const label = checkedResult ? lodgingStayLabel(checkedResult, nights) : `${mode.label} not checked`;
+  const stay = lodgingSnapshotStayLabel(result, tripWindow, nights);
   const status = checkedResult
     ? `${checkedResult.sourceKind === "live" ? "checked" : "saved from"} ${shortDate(checkedAt!)}`
     : wasChecked
@@ -1168,7 +1207,7 @@ function LodgingPriceLink({
           </span>
         )}
         <span className="mt-0.5 block text-[11px] font-medium text-ink/42">
-          {mode.label} · {travelDateLabel(tripWindow)} · {tripLengthLabel(nights)} ·{" "}
+          {mode.label} · {stay.dateLabel} · {stay.nightsLabel} ·{" "}
           {guestLabel(mode.adults)} · {status}
         </span>
         {result && result.status !== "checked" ? (
@@ -1250,6 +1289,9 @@ export function DestinationCard({
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
   const activePhotoUrl = photoUrl ?? theme.photoUrl;
+  const activeLodgingSnapshot = lodgingSnapshotMatchesTripWindow(lodgingSnapshot, tripWindow)
+    ? lodgingSnapshot
+    : undefined;
   const isDriving = preferences.travelMode === "drive";
   const airfare = isDriving
     ? undefined
@@ -1275,7 +1317,7 @@ export function DestinationCard({
     airfare,
     preferences.nights,
     preferences.travelMode,
-    lodgingSnapshot,
+    activeLodgingSnapshot,
     unavailableFare,
     isCheckingFare,
     isCheckingLodging
@@ -1480,7 +1522,7 @@ export function DestinationCard({
                   <CheckingLodgingLink mode={lodgingMode} tripWindow={tripWindow} />
                 ) : (
                   <LodgingPriceLink
-                    result={lodgingSnapshot}
+                    result={activeLodgingSnapshot}
                     mode={lodgingMode}
                     tripWindow={tripWindow}
                     nights={preferences.nights}

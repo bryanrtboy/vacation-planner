@@ -43,16 +43,33 @@ function nightsBetween(tripWindow: TripWindow) {
   return Number.isFinite(nights) && nights > 0 ? nights : 1;
 }
 
-function totalRate(property: SerpApiHotelProperty, nights: number) {
-  const total =
-    property.total_rate?.extracted_lowest ?? property.total_rate?.extracted_before_taxes_fees;
-  if (typeof total === "number" && Number.isFinite(total) && total > 0) return total;
+function numericRate(...values: unknown[]) {
+  return values.find(
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
+  );
+}
 
-  const nightly =
-    property.extracted_price ??
-    property.rate_per_night?.extracted_lowest ??
-    property.rate_per_night?.extracted_before_taxes_fees;
-  if (typeof nightly === "number" && Number.isFinite(nightly) && nightly > 0) {
+function totalRate(property: SerpApiHotelProperty, nights: number) {
+  const total = numericRate(
+    property.total_rate?.extracted_lowest,
+    property.total_rate?.extracted_before_taxes_fees
+  );
+  const nightly = numericRate(
+    property.rate_per_night?.extracted_lowest,
+    property.rate_per_night?.extracted_before_taxes_fees,
+    property.extracted_price
+  );
+
+  if (typeof total === "number") {
+    if (typeof nightly === "number") {
+      const nightlyTotal = nightly * nights;
+      if (total < nightlyTotal * 0.75) return nightlyTotal;
+    }
+
+    return total;
+  }
+
+  if (typeof nightly === "number") {
     return nightly * nights;
   }
 
@@ -117,7 +134,7 @@ function normalizeLodging(
       data.search_metadata?.google_hotels_url ??
       googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
     sourceDetail:
-      "Lodging checked through Google Hotels. The displayed range is the lowest total-stay price cluster, before detailed property review.",
+      "Lodging checked through Google Hotels. Total-stay prices are cross-checked against nightly rates when both are returned, then summarized as the lowest plausible price cluster before detailed property review.",
     sourceKind: "live"
   };
 }

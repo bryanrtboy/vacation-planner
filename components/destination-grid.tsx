@@ -91,6 +91,7 @@ const usRegionNames = new Set([
   "rocky mountains",
   "new england"
 ]);
+const usCountryAliases = new Set(["us", "u s", "usa", "u s a", "united states", "united states of america"]);
 
 const airportOptions = [
   { code: "DEN", label: "Denver" },
@@ -223,7 +224,29 @@ function destinationMatchesRegion(destination: Destination, regionFilter: string
   if (destination.region === regionFilter) return true;
   if (regionFilter !== unitedStatesRegion) return false;
 
-  return usRegionNames.has(destination.region.trim().toLowerCase());
+  return isUnitedStatesRegion(destination.region);
+}
+
+function normalizeRegionPart(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\./g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isUnitedStatesRegion(region: string) {
+  const normalized = normalizeRegionPart(region);
+  if (usRegionNames.has(normalized) || usCountryAliases.has(normalized)) return true;
+
+  const parts = normalized
+    .split(/[,/|;()]+|\s+-\s+|\s+in\s+|\s+near\s+/)
+    .map(normalizeRegionPart)
+    .filter(Boolean);
+
+  return parts.some((part) => usRegionNames.has(part) || usCountryAliases.has(part));
 }
 
 function normalizeNights(value: unknown) {
@@ -321,11 +344,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const regions = useMemo(
     () => {
       const regionSet = new Set(destinations.map((destination) => destination.region));
-      if (
-        destinations.some((destination) =>
-          usRegionNames.has(destination.region.trim().toLowerCase())
-        )
-      ) {
+      if (destinations.some((destination) => isUnitedStatesRegion(destination.region))) {
         regionSet.add(unitedStatesRegion);
       }
       return [...regionSet].sort();
