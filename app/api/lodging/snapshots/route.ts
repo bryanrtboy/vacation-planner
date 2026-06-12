@@ -77,8 +77,7 @@ export async function POST(request: Request) {
         snapshotSearch: lodgingSnapshotSearch(
           destination,
           tripWindow,
-          mode,
-          preferences.travelMode
+          mode
         )
       };
     });

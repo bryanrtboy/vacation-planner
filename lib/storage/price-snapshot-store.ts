@@ -183,12 +183,24 @@ export async function readPriceSnapshot(
   const db = await getD1Database();
   if (!db) return null;
 
-  const key = buildPriceSnapshotKey(search);
-  const row = await db
-    .prepare("SELECT * FROM price_snapshots WHERE snapshot_key = ?1")
-    .bind(key)
-    .first<PriceSnapshotRow>()
-    .catch(() => null);
+  const keys = [
+    buildPriceSnapshotKey(search),
+    ...(search.kind === "lodging" && !search.travelMode
+      ? [
+          buildPriceSnapshotKey({ ...search, travelMode: "fly" }),
+          buildPriceSnapshotKey({ ...search, travelMode: "drive" })
+        ]
+      : [])
+  ];
+  let row: PriceSnapshotRow | null = null;
+  for (const key of keys) {
+    row = await db
+      .prepare("SELECT * FROM price_snapshots WHERE snapshot_key = ?1")
+      .bind(key)
+      .first<PriceSnapshotRow>()
+      .catch(() => null);
+    if (row) break;
+  }
 
   if (!row) return null;
   const result = rowToResult(row);

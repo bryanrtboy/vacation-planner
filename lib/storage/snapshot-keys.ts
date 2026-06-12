@@ -61,15 +61,13 @@ export function airfareSnapshotSearch(search: WatchedSearch): PriceSnapshotSearc
 export function lodgingSnapshotSearch(
   destination: Destination,
   tripWindow: TripWindow,
-  mode: LodgingMode,
-  travelMode: "fly" | "drive" = "fly"
+  mode: LodgingMode
 ): PriceSnapshotSearch {
   return {
     kind: "lodging",
     provider: "serpapi-google-hotels-v7",
     destinationSlug: destination.slug,
     destinationName: destination.name,
-    travelMode,
     destinationQuery: lodgingSearchQuery(destination, mode),
     departDate: tripWindow.departDate,
     returnDate: tripWindow.returnDate,

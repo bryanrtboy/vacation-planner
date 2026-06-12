@@ -271,6 +271,42 @@ function lodgingPreferenceFromSnapshotMode(mode: string | undefined) {
   return undefined;
 }
 
+function lodgingScenarioFromLocalKey(key: string, result: WatchRefreshResult): CheckedScenario | undefined {
+  const parts = key.split(":");
+  let travelMode: TripPreferences["travelMode"] | undefined;
+  let slug: string | undefined;
+  let mode: string | undefined;
+  let departDate: string | undefined;
+  let returnDate: string | undefined;
+  let adults: string | undefined;
+
+  if (parts[0] === "v7") {
+    [, slug, mode, departDate, returnDate, adults] = parts;
+  } else {
+    const [legacyTravelMode, version, legacySlug, legacyMode, legacyDepartDate, legacyReturnDate, legacyAdults] = parts;
+    if (version !== "v7") return undefined;
+    travelMode = legacyTravelMode === "drive" ? "drive" : "fly";
+    slug = legacySlug;
+    mode = legacyMode;
+    departDate = legacyDepartDate;
+    returnDate = legacyReturnDate;
+    adults = legacyAdults;
+  }
+
+  if (!slug || !departDate || !returnDate) return undefined;
+
+  return {
+    travelMode,
+    flightCount: Number(adults) || undefined,
+    nights: checkedNightsBetween(departDate, returnDate),
+    lodging: lodgingPreferenceFromSnapshotMode(mode),
+    departDate,
+    returnDate,
+    travelSeason: "saved",
+    updatedAt: result.retrievedAt
+  };
+}
+
 function newerScenario(current: CheckedScenario | undefined, candidate: CheckedScenario) {
   if (!current?.updatedAt) return candidate;
   if (!candidate.updatedAt) return current;
@@ -534,19 +570,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
     for (const [key, result] of Object.entries(lodgingSnapshots)) {
       if (result.status !== "checked") continue;
-      const [travelMode, , slug, mode, departDate, returnDate, adults] = key.split(":");
-      if (!slug || !departDate || !returnDate) continue;
-      const scenario: CheckedScenario = {
-        travelMode: travelMode === "drive" ? "drive" : "fly",
-        flightCount: Number(adults) || undefined,
-        nights: checkedNightsBetween(departDate, returnDate),
-        lodging: lodgingPreferenceFromSnapshotMode(mode),
-        departDate,
-        returnDate,
-        travelSeason: "saved",
-        updatedAt: result.retrievedAt
-      };
-      bySlug.set(slug, newerScenario(bySlug.get(slug), scenario));
+      const scenario = lodgingScenarioFromLocalKey(key, result);
+      if (!scenario || !result.destinationSlug) continue;
+      bySlug.set(result.destinationSlug, newerScenario(bySlug.get(result.destinationSlug), scenario));
     }
 
     for (const [key, result] of Object.entries(snapshots)) {
@@ -591,12 +617,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const lodgingKey = useCallback(
     (destination: Destination, activePreferences: TripPreferences, tripWindow: TripWindow) =>
-      `${activePreferences.travelMode ?? "fly"}:${lodgingSnapshotKey(
-        destination,
-        tripWindow,
-        lodgingModeFromPreference(activePreferences.lodging)
-      )}`,
+      lodgingSnapshotKey(destination, tripWindow, lodgingModeFromPreference(activePreferences.lodging)),
     []
+  );
+  const legacyLodgingKey = useCallback(
+    (destination: Destination, activePreferences: TripPreferences, tripWindow: TripWindow) =>
+      `${activePreferences.travelMode ?? "fly"}:${lodgingKey(destination, activePreferences, tripWindow)}`,
+    [lodgingKey]
   );
   const savedSearchSnapshotMaps = useMemo(() => {
     const fare: StoredFareSnapshots = {};
@@ -1183,10 +1210,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const lodgingMode = lodgingModeFromPreference(activePreferences.lodging);
     const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
     const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
+    const activeLegacyLodgingKey = legacyLodgingKey(destination, activePreferences, tripWindow);
     const isExpanded = expandedDestinationSlugs.has(destination.slug);
     const activeFareSnapshot = snapshots[fareKey] ?? savedSearchSnapshotMaps.fare[fareKey];
     const activeLodgingSnapshot =
-      lodgingSnapshots[activeLodgingKey] ?? savedSearchSnapshotMaps.lodging[activeLodgingKey];
+      lodgingSnapshots[activeLodgingKey] ??
+      lodgingSnapshots[activeLegacyLodgingKey] ??
+      savedSearchSnapshotMaps.lodging[activeLodgingKey];
     const hasCheckedScenario =
       activeFareSnapshot?.status === "checked" ||
       activeLodgingSnapshot?.status === "checked";
