@@ -143,6 +143,18 @@ const interestOptions = [
   "custom"
 ];
 
+const resultInterestOptions = [
+  { value: "art", label: "art" },
+  { value: "food", label: "food" },
+  { value: "gardens", label: "gardens" },
+  { value: "landscape", label: "landscape" },
+  { value: "coast", label: "coast / water" },
+  { value: "architecture", label: "architecture" },
+  { value: "trains", label: "train-friendly" },
+  { value: "quiet bases", label: "quiet bases" },
+  { value: "rural", label: "rural" }
+];
+
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -228,6 +240,8 @@ function destinationInterestText(destination: Destination) {
 }
 
 function destinationMatchesInterests(destination: Destination, preferences: TripPreferences["interests"]) {
+  if (preferences === allInterestsFilter || preferences === "all interests") return true;
+
   const terms = interestTerms(preferences);
   if (!terms.length) return true;
 
@@ -409,6 +423,18 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const transportModes = useMemo(
     () => [...new Set(destinations.map((destination) => destination.transport))].sort(),
+    [destinations]
+  );
+  const libraryInterestOptions = useMemo(
+    () =>
+      resultInterestOptions
+        .map((option) => ({
+          ...option,
+          count: destinations.filter((destination) =>
+            destinationMatchesInterests(destination, option.value)
+          ).length
+        }))
+        .filter((option) => option.count > 0),
     [destinations]
   );
   const filteredDestinations = useMemo(() => {
@@ -1567,13 +1593,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               className={libraryFieldClass}
             >
               <option value={allInterestsFilter}>all interests</option>
-              {interestOptions
-                .filter((option) => option !== "custom")
-                .map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
+              {libraryInterestOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
             </select>
           </label>
           <label className="grid min-w-40 gap-1">
