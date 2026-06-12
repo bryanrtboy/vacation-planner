@@ -908,6 +908,7 @@ function ScenarioSummary({
     onScenarioChange?.({
       ...preferences,
       departure: search.departure ?? preferences.departure,
+      travelMode: search.travelMode ?? preferences.travelMode,
       flightCount: Math.max(
         search.flightCount ?? preferences.flightCount,
         savedMode?.adults ?? lodgingMode.adults

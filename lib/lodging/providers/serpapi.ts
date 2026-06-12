@@ -9,12 +9,25 @@ type SerpApiRate = {
   extracted_before_taxes_fees?: number;
 };
 
+type SerpApiCoordinates = {
+  latitude?: number;
+  longitude?: number;
+};
+
+type SerpApiPriceOption = {
+  source?: string;
+  link?: string;
+};
+
 type SerpApiHotelProperty = {
   name?: string;
   type?: string;
   link?: string;
   price?: string;
   extracted_price?: number;
+  property_token?: string;
+  gps_coordinates?: SerpApiCoordinates;
+  prices?: SerpApiPriceOption[];
   overall_rating?: number;
   rating?: number;
   reviews?: number;
@@ -89,9 +102,64 @@ function totalRate(property: SerpApiHotelProperty, nights: number) {
   return null;
 }
 
+function googleHotelsPropertyUrl(
+  context: LodgingSearchContext,
+  propertyToken: string | undefined
+) {
+  const params = new URLSearchParams({
+    q: lodgingSearchQuery(context.destination, context.mode),
+    check_in_date: context.tripWindow.departDate,
+    check_out_date: context.tripWindow.returnDate,
+    adults: String(context.mode.adults),
+    children: "0",
+    currency: "USD",
+    hl: "en",
+    gl: "us"
+  });
+
+  if (context.mode.vacationRental) {
+    params.set("vacation_rentals", "true");
+  }
+
+  if (propertyToken) {
+    params.set("property_token", propertyToken);
+  }
+
+  return `https://www.google.com/travel/search?${params.toString()}`;
+}
+
+function googleMapsUrl(coordinates: SerpApiCoordinates | undefined, name: string) {
+  if (
+    typeof coordinates?.latitude === "number" &&
+    Number.isFinite(coordinates.latitude) &&
+    typeof coordinates.longitude === "number" &&
+    Number.isFinite(coordinates.longitude)
+  ) {
+    const params = new URLSearchParams({
+      api: "1",
+      query: `${coordinates.latitude},${coordinates.longitude}`
+    });
+    return `https://www.google.com/maps/search/?${params.toString()}`;
+  }
+
+  const params = new URLSearchParams({ q: name });
+  return `https://www.google.com/search?${params.toString()}`;
+}
+
+function priceSourceNames(property: SerpApiHotelProperty) {
+  return [...new Set((property.prices ?? []).map((price) => price.source).filter(Boolean))] as string[];
+}
+
+function directListingLink(property: SerpApiHotelProperty) {
+  return property.link ?? property.prices?.find((price) => price.link)?.link;
+}
+
 type LodgingCandidate = {
   name: string;
   link?: string;
+  googleResultUrl?: string;
+  mapsUrl?: string;
+  sourceNames: string[];
   propertyType?: string;
   rating?: number;
   reviews?: number;
@@ -122,7 +190,8 @@ const groupRentalPattern = /\b(house|home|cottage|cabin|villa|townhouse|retreat|
 function candidateForProperty(
   property: SerpApiHotelProperty,
   nights: number,
-  source: LodgingCandidate["source"]
+  source: LodgingCandidate["source"],
+  context: LodgingSearchContext
 ): LodgingCandidate | null {
   const total = totalRate(property, nights);
   if (typeof total !== "number") return null;
@@ -132,7 +201,10 @@ function candidateForProperty(
 
   return {
     name: property.name ?? "Unnamed lodging",
-    link: property.link,
+    link: directListingLink(property),
+    googleResultUrl: googleHotelsPropertyUrl(context, property.property_token),
+    mapsUrl: googleMapsUrl(property.gps_coordinates, property.name ?? context.destination.name),
+    sourceNames: priceSourceNames(property),
     propertyType: property.type,
     rating: numericRate(property.overall_rating, property.rating),
     reviews: numericCount(property.reviews),
@@ -417,7 +489,9 @@ function normalizeLodging(
   const nights = nightsBetween(context.tripWindow);
   const rawCandidates = uniqueCandidates(
     responses.flatMap(({ data, source }) =>
-      (data.properties ?? []).map((property) => candidateForProperty(property, nights, source))
+      (data.properties ?? []).map((property) =>
+        candidateForProperty(property, nights, source, context)
+      )
     )
       .filter((candidate): candidate is LodgingCandidate => Boolean(candidate))
   );

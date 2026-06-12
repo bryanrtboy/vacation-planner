@@ -74,7 +74,12 @@ export async function POST(request: Request) {
         destination,
         mode,
         tripWindow,
-        snapshotSearch: lodgingSnapshotSearch(destination, tripWindow, mode)
+        snapshotSearch: lodgingSnapshotSearch(
+          destination,
+          tripWindow,
+          mode,
+          preferences.travelMode
+        )
       };
     });
   const cachedPairs = await Promise.all(

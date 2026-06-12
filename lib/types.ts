@@ -167,6 +167,7 @@ export type SavedSearchSummary = {
   label: string;
   detail: string;
   kind: "airfare" | "lodging";
+  travelMode?: "fly" | "drive";
   destinationSlug: string;
   destinationName: string;
   departure?: string;

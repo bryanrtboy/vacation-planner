@@ -10,6 +10,7 @@ export type PriceSnapshotSearch = {
   provider: string;
   destinationSlug: string;
   destinationName: string;
+  travelMode?: "fly" | "drive";
   origin?: string;
   destinationQuery?: string;
   departDate?: string;
@@ -28,6 +29,7 @@ export function buildPriceSnapshotKey(search: PriceSnapshotSearch) {
     search.kind,
     search.provider,
     search.destinationSlug,
+    search.travelMode,
     search.origin,
     search.destinationQuery,
     search.departDate,
@@ -46,6 +48,7 @@ export function airfareSnapshotSearch(search: WatchedSearch): PriceSnapshotSearc
     provider: "serpapi-google-flights",
     destinationSlug: search.destinationSlug,
     destinationName: search.destinationName,
+    travelMode: "fly",
     origin: search.origin,
     destinationQuery: search.route,
     departDate: search.departDate,
@@ -58,13 +61,15 @@ export function airfareSnapshotSearch(search: WatchedSearch): PriceSnapshotSearc
 export function lodgingSnapshotSearch(
   destination: Destination,
   tripWindow: TripWindow,
-  mode: LodgingMode
+  mode: LodgingMode,
+  travelMode: "fly" | "drive" = "fly"
 ): PriceSnapshotSearch {
   return {
     kind: "lodging",
     provider: "serpapi-google-hotels-v7",
     destinationSlug: destination.slug,
     destinationName: destination.name,
+    travelMode,
     destinationQuery: lodgingSearchQuery(destination, mode),
     departDate: tripWindow.departDate,
     returnDate: tripWindow.returnDate,

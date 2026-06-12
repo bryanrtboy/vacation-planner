@@ -145,6 +145,13 @@ type SuggestionResponse = {
   storageReady?: boolean;
 };
 
+type DestinationScenarioResponse = {
+  scenarios?: {
+    destinationSlug: string;
+    preferences: TripPreferences;
+  }[];
+};
+
 const interestSynonyms: Record<string, string[]> = {
   art: ["art", "gallery", "galleries", "museum", "museums", "design", "ceramics", "mosaics"],
   craft: ["craft", "ceramics", "tile", "tiles", "print", "workshops", "studio"],
@@ -407,7 +414,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const lodgingKey = useCallback(
     (destination: Destination, activePreferences: TripPreferences, tripWindow: TripWindow) =>
-      lodgingSnapshotKey(destination, tripWindow, lodgingModeFromPreference(activePreferences.lodging)),
+      `${activePreferences.travelMode ?? "fly"}:${lodgingSnapshotKey(
+        destination,
+        tripWindow,
+        lodgingModeFromPreference(activePreferences.lodging)
+      )}`,
     []
   );
   const checkingCount = checkingSlugs.size;
@@ -506,6 +517,36 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
 
     void hydrateSuggestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateDestinationScenarios() {
+      try {
+        const response = await fetch("/api/destination-scenarios");
+        if (!response.ok) return;
+        const data = (await response.json()) as DestinationScenarioResponse;
+        if (cancelled || !data.scenarios?.length) return;
+        setScenarioOverrides((current) => ({
+          ...Object.fromEntries(
+            data.scenarios!.map((scenario) => [
+              scenario.destinationSlug,
+              scenario.preferences
+            ])
+          ),
+          ...current
+        }));
+      } catch {
+        // Per-destination scenarios are optional; local edits still work without D1.
+      }
+    }
+
+    void hydrateDestinationScenarios();
 
     return () => {
       cancelled = true;
@@ -795,6 +836,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           returnDate: nextPreferences.returnDate
         }
       }));
+      void fetch("/api/destination-scenarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destinationSlug: destination.slug,
+          preferences: nextPreferences
+        })
+      }).catch(() => undefined);
       void hydrateScenarioSnapshots(destination, nextPreferences);
     },
     [hydrateScenarioSnapshots]
@@ -815,7 +864,18 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         (item) => item.slug === savedSearch.destinationSlug
       );
       if (!destination) return;
-      updateCardScenario(destination, readTripPreferences());
+      const basePreferences = readTripPreferences();
+      updateCardScenario(destination, {
+        ...basePreferences,
+        departure: savedSearch.departure ?? basePreferences.departure,
+        travelMode: savedSearch.travelMode ?? basePreferences.travelMode,
+        flightCount: savedSearch.flightCount ?? basePreferences.flightCount,
+        nights: savedSearch.nights ?? basePreferences.nights,
+        lodging: savedSearch.lodging ?? basePreferences.lodging,
+        departDate: savedSearch.departDate,
+        returnDate: savedSearch.returnDate,
+        travelSeason: "saved"
+      });
     }
 
     window.addEventListener(savedSearchSelectedEvent, handleSavedSearchSelected);

@@ -6,6 +6,7 @@ type PriceSnapshotRow = {
   snapshot_key: string;
   kind: string;
   provider: string;
+  travel_mode: "fly" | "drive" | null;
   mode: string | null;
   destination_slug: string;
   destination_name: string;
@@ -30,6 +31,7 @@ type PriceSnapshotRow = {
 type SavedSearchRow = {
   snapshot_key: string;
   kind: "airfare" | "lodging";
+  travel_mode: "fly" | "drive" | null;
   mode: string | null;
   destination_slug: string;
   destination_name: string;
@@ -95,6 +97,12 @@ function lodgingPreference(mode: string | null) {
   return undefined;
 }
 
+function travelModeFromRow(row: { kind: "airfare" | "lodging"; travel_mode: string | null }) {
+  if (row.travel_mode === "drive") return "drive";
+  if (row.travel_mode === "fly") return "fly";
+  return row.kind === "airfare" ? "fly" : undefined;
+}
+
 function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
   const nights = nightsBetween(row.depart_date, row.return_date);
   const dateLabel =
@@ -103,6 +111,7 @@ function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
     ? `${row.adults} ${row.kind === "airfare" ? (row.adults === 1 ? "ticket" : "tickets") : row.adults === 1 ? "guest" : "guests"}`
     : "saved people";
   const lodging = lodgingPreference(row.mode);
+  const travelMode = travelModeFromRow(row);
   const labelParts =
     row.kind === "airfare"
       ? [
@@ -113,10 +122,11 @@ function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
         ]
       : [
           row.destination_name,
+          travelMode === "drive" ? "driving" : undefined,
           lodging ?? "lodging",
           peopleLabel,
           `${nights ?? "?"} nights`
-        ];
+        ].filter(Boolean);
 
   return {
     id: row.snapshot_key,
@@ -124,8 +134,9 @@ function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
     detail:
       row.kind === "airfare"
         ? `Airfare checked ${dateLabel}`
-        : `${lodging ?? "lodging"} checked ${dateLabel}`,
+        : `${travelMode === "drive" ? "Driving · " : ""}${lodging ?? "lodging"} checked ${dateLabel}`,
     kind: row.kind,
+    travelMode,
     destinationSlug: row.destination_slug,
     destinationName: row.destination_name,
     departure: row.origin ?? undefined,
@@ -172,20 +183,21 @@ export async function writePriceSnapshot(search: PriceSnapshotSearch, result: Wa
   await db
     .prepare(
       `INSERT INTO price_snapshots (
-        snapshot_key, kind, provider, mode, destination_slug, destination_name,
+        snapshot_key, kind, provider, travel_mode, mode, destination_slug, destination_name,
         origin, destination_query, depart_date, return_date, adults, children,
         status, message, min_price, max_price, currency, sampled_dates,
         retrieved_at, source_url, source_detail, source_kind, raw_provider_json,
         created_at, updated_at
       ) VALUES (
-        ?1, ?2, ?3, ?4, ?5, ?6,
-        ?7, ?8, ?9, ?10, ?11, ?12,
-        ?13, ?14, ?15, ?16, 'USD', ?17,
-        ?18, ?19, ?20, ?21, ?22,
-        ?23, ?23
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+        ?8, ?9, ?10, ?11, ?12, ?13,
+        ?14, ?15, ?16, ?17, 'USD', ?18,
+        ?19, ?20, ?21, ?22, ?23,
+        ?24, ?24
       )
       ON CONFLICT(snapshot_key) DO UPDATE SET
         provider = excluded.provider,
+        travel_mode = excluded.travel_mode,
         mode = excluded.mode,
         destination_slug = excluded.destination_slug,
         destination_name = excluded.destination_name,
@@ -211,6 +223,7 @@ export async function writePriceSnapshot(search: PriceSnapshotSearch, result: Wa
       key,
       search.kind,
       result.provider ?? search.provider,
+      search.travelMode ?? null,
       search.mode ?? null,
       search.destinationSlug,
       search.destinationName,
@@ -243,7 +256,7 @@ export async function listRecentSavedSearches(limit = 20): Promise<SavedSearchSu
   const rows = await db
     .prepare(
       `SELECT
-        snapshot_key, kind, mode, destination_slug, destination_name, origin,
+        snapshot_key, kind, travel_mode, mode, destination_slug, destination_name, origin,
         depart_date, return_date, adults, updated_at
        FROM price_snapshots
        WHERE status = 'checked'

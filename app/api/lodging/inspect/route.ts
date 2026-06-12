@@ -46,18 +46,16 @@ function candidateRows(
   emptyLabel: string
 ) {
   if (!candidates.length) {
-    return `<tr><td colspan="6">${escapeHtml(emptyLabel)}</td></tr>`;
+    return `<tr><td colspan="7">${escapeHtml(emptyLabel)}</td></tr>`;
   }
 
   return candidates
     .map((candidate) => {
-      const name = candidate.link
-        ? `<a href="${escapeHtml(candidate.link)}" target="_blank" rel="noreferrer">${escapeHtml(candidate.name)}</a>`
-        : escapeHtml(candidate.name);
       return `<tr>
-        <td>${name}</td>
+        <td>${escapeHtml(candidate.name)}</td>
         <td>${escapeHtml(candidate.propertyType ?? "")}</td>
         <td>${escapeHtml(candidate.rating ? `${candidate.rating.toFixed(1)} (${candidate.reviews ?? 0})` : "unrated")}</td>
+        <td>${candidateLinks(candidate)}</td>
         <td>${escapeHtml(candidate.source === "low-price" ? "price sort" : "relevance")}</td>
         <td>${dollars(candidate.nightly)}/night</td>
         <td>${dollars(candidate.total)}</td>
@@ -70,17 +68,15 @@ function rejectedRows(
   candidates: Awaited<ReturnType<typeof inspectSerpApiLodging>>["rawCandidates"]
 ) {
   const rejected = candidates.filter((candidate) => candidate.excludedReason);
-  if (!rejected.length) return `<tr><td colspan="7">No excluded listings.</td></tr>`;
+  if (!rejected.length) return `<tr><td colspan="8">No excluded listings.</td></tr>`;
 
   return rejected
     .map((candidate) => {
-      const name = candidate.link
-        ? `<a href="${escapeHtml(candidate.link)}" target="_blank" rel="noreferrer">${escapeHtml(candidate.name)}</a>`
-        : escapeHtml(candidate.name);
       return `<tr>
-        <td>${name}</td>
+        <td>${escapeHtml(candidate.name)}</td>
         <td>${escapeHtml(candidate.propertyType ?? "")}</td>
         <td>${escapeHtml(candidate.rating ? `${candidate.rating.toFixed(1)} (${candidate.reviews ?? 0})` : "unrated")}</td>
+        <td>${candidateLinks(candidate)}</td>
         <td>${escapeHtml(candidate.source === "low-price" ? "price sort" : "relevance")}</td>
         <td>${dollars(candidate.nightly)}/night</td>
         <td>${dollars(candidate.total)}</td>
@@ -88,6 +84,27 @@ function rejectedRows(
       </tr>`;
     })
     .join("");
+}
+
+function candidateLinks(
+  candidate: Awaited<ReturnType<typeof inspectSerpApiLodging>>["rawCandidates"][number]
+) {
+  const links = [
+    candidate.link
+      ? `<a href="${escapeHtml(candidate.link)}" target="_blank" rel="noreferrer">Listing</a>`
+      : "",
+    candidate.googleResultUrl
+      ? `<a href="${escapeHtml(candidate.googleResultUrl)}" target="_blank" rel="noreferrer">Google result</a>`
+      : "",
+    candidate.mapsUrl
+      ? `<a href="${escapeHtml(candidate.mapsUrl)}" target="_blank" rel="noreferrer">Map</a>`
+      : ""
+  ].filter(Boolean);
+  const sources = candidate.sourceNames.length
+    ? `<span class="sources">${escapeHtml(candidate.sourceNames.join(", "))}</span>`
+    : "";
+
+  return [...links, sources].join(" ");
 }
 
 function inspectHtml(destination: Destination, inspection: Awaited<ReturnType<typeof inspectSerpApiLodging>>) {
@@ -114,6 +131,7 @@ function inspectHtml(destination: Destination, inspection: Awaited<ReturnType<ty
       th, td { border-bottom: 1px solid #e7e2db; padding: 10px 12px; text-align: left; vertical-align: top; }
       th { color: #5b605f; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
       a { color: #2f6f7a; font-weight: 700; text-decoration: none; }
+      .sources { color: #77706a; display: inline-block; font-size: 12px; margin-left: 6px; }
     </style>
   </head>
   <body>
@@ -127,17 +145,17 @@ function inspectHtml(destination: Destination, inspection: Awaited<ReturnType<ty
       </section>
       <h2>Included In Estimate</h2>
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Sample</th><th>Nightly</th><th>Total</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Links</th><th>Sample</th><th>Nightly</th><th>Total</th></tr></thead>
         <tbody>${candidateRows(inspection.summarizedCandidates, "No listings survived filtering.")}</tbody>
       </table>
       <h2>Compatible Results Before Outlier Trim</h2>
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Sample</th><th>Nightly</th><th>Total</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Links</th><th>Sample</th><th>Nightly</th><th>Total</th></tr></thead>
         <tbody>${candidateRows(inspection.compatibleCandidates, "No compatible listings were found.")}</tbody>
       </table>
       <h2>Excluded Results</h2>
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Sample</th><th>Nightly</th><th>Total</th><th>Reason</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Rating</th><th>Links</th><th>Sample</th><th>Nightly</th><th>Total</th><th>Reason</th></tr></thead>
         <tbody>${rejectedRows(inspection.rawCandidates)}</tbody>
       </table>
     </main>
