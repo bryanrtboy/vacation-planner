@@ -371,6 +371,18 @@ function savedSearchTitle(search: SavedSearchSummary) {
   return `${dateText} · ${nightsText} · ${peopleText}`;
 }
 
+function savedSearchPriceText(search: SavedSearchSummary) {
+  if (!search.result?.currentRange) return undefined;
+  const { min, max } = search.result.currentRange;
+  if (min === max) return moneyLabel(min);
+  return `${moneyLabel(min)}-${moneyLabel(max)}`;
+}
+
+function savedSearchKindLabel(search: SavedSearchSummary) {
+  if (search.kind === "airfare") return "Airfare";
+  return `${search.travelMode === "drive" ? "Driving · " : ""}${search.lodging ?? "Lodging"}`;
+}
+
 function lodgingPreferenceFromMode(modeId: LodgingModeId) {
   return lodgingModes[modeId].label;
 }
@@ -969,6 +981,31 @@ function ScenarioSummary({
       <span className="mt-0.5 block text-[11px] leading-4 text-ink/42">
         These settings drive the summary cost and the price checks on this card.
       </span>
+      {destinationSearches.length && onScenarioChange ? (
+        <div className="mt-3 grid gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+            Checked options
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {destinationSearches.map((search) => (
+              <button
+                key={search.id}
+                type="button"
+                onClick={() => applySavedSearch(search)}
+                className="rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-left text-xs transition hover:border-harbor/30 hover:text-harbor"
+              >
+                <span className="block font-semibold text-ink">
+                  {savedSearchKindLabel(search)}
+                  {savedSearchPriceText(search) ? ` · ${savedSearchPriceText(search)}` : ""}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-ink/45">
+                  {savedSearchTitle(search)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {editing ? (
         <div className="mt-3 grid gap-3">
           <div className="grid gap-2 sm:grid-cols-4">

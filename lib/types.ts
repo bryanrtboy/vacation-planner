@@ -177,6 +177,7 @@ export type SavedSearchSummary = {
   departDate?: string;
   returnDate?: string;
   updatedAt: string;
+  result?: WatchRefreshResult;
 };
 
 export type DestinationSuggestionStatus = "draft" | "accepted" | "hidden";

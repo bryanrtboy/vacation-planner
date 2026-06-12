@@ -286,6 +286,23 @@ function definedScenario(scenario: CheckedScenario | undefined) {
   ) as Partial<TripPreferences>;
 }
 
+function preferencesFromSavedSearch(
+  search: SavedSearchSummary,
+  preferences: TripPreferences
+): TripPreferences {
+  return {
+    ...preferences,
+    departure: search.departure ?? preferences.departure,
+    travelMode: search.travelMode ?? preferences.travelMode,
+    flightCount: search.flightCount ?? preferences.flightCount,
+    nights: search.nights ?? preferences.nights,
+    lodging: search.lodging ?? preferences.lodging,
+    departDate: search.departDate,
+    returnDate: search.returnDate,
+    travelSeason: search.departDate && search.returnDate ? "saved" : preferences.travelSeason
+  };
+}
+
 function destinationMatchesRegion(destination: Destination, regionFilter: string) {
   if (regionFilter === allRegionsFilter) return true;
   if (destination.region === regionFilter) return true;
@@ -565,6 +582,27 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       )}`,
     []
   );
+  const savedSearchSnapshotMaps = useMemo(() => {
+    const fare: StoredFareSnapshots = {};
+    const lodging: StoredFareSnapshots = {};
+
+    for (const search of savedSearches) {
+      if (search.result?.status !== "checked") continue;
+      const destination = destinations.find((item) => item.slug === search.destinationSlug);
+      if (!destination) continue;
+
+      const savedPreferences = preferencesFromSavedSearch(search, preferences);
+      const tripWindow = tripWindowFor(destination, savedPreferences);
+
+      if (search.kind === "airfare") {
+        fare[snapshotKey(search.destinationSlug, savedPreferences, tripWindow)] = search.result;
+      } else {
+        lodging[lodgingKey(destination, savedPreferences, tripWindow)] = search.result;
+      }
+    }
+
+    return { fare, lodging };
+  }, [destinations, lodgingKey, preferences, savedSearches, snapshotKey, tripWindowFor]);
   const checkingCount = checkingSlugs.size;
   const checkingLodgingCount = checkingLodgingSlugs.size;
   const shownCount = Math.min(visibleCount, filteredDestinations.length);
@@ -1130,9 +1168,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
     const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
     const isExpanded = expandedDestinationSlugs.has(destination.slug);
+    const activeFareSnapshot = snapshots[fareKey] ?? savedSearchSnapshotMaps.fare[fareKey];
+    const activeLodgingSnapshot =
+      lodgingSnapshots[activeLodgingKey] ?? savedSearchSnapshotMaps.lodging[activeLodgingKey];
     const hasCheckedScenario =
-      snapshots[fareKey]?.status === "checked" ||
-      lodgingSnapshots[activeLodgingKey]?.status === "checked";
+      activeFareSnapshot?.status === "checked" ||
+      activeLodgingSnapshot?.status === "checked";
     const hasCheckedFallback =
       Boolean(savedCheckedScenarios.get(destination.slug)) ||
       Boolean(localCheckedScenarios.get(destination.slug));
@@ -1141,9 +1182,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       <DestinationCard
         key={destination.slug}
         destination={destination}
-        fareSnapshot={snapshots[fareKey]}
+        fareSnapshot={activeFareSnapshot}
         lodgingMode={lodgingMode}
-        lodgingSnapshot={lodgingSnapshots[activeLodgingKey]}
+        lodgingSnapshot={activeLodgingSnapshot}
         isCheckingFare={checkingSlugs.has(destination.slug)}
         isCheckingLodging={checkingLodgingSlugs.has(destination.slug)}
         onCheckFare={() =>

@@ -31,6 +31,7 @@ type PriceSnapshotRow = {
 type SavedSearchRow = {
   snapshot_key: string;
   kind: "airfare" | "lodging";
+  provider: string;
   travel_mode: "fly" | "drive" | null;
   mode: string | null;
   destination_slug: string;
@@ -39,6 +40,15 @@ type SavedSearchRow = {
   depart_date: string | null;
   return_date: string | null;
   adults: number | null;
+  status: WatchRefreshResult["status"];
+  message: string;
+  min_price: number | null;
+  max_price: number | null;
+  sampled_dates: string | null;
+  retrieved_at: string | null;
+  source_url: string | null;
+  source_detail: string | null;
+  source_kind: PriceSourceKind;
   updated_at: string;
 };
 
@@ -145,7 +155,24 @@ function rowToSavedSearch(row: SavedSearchRow): SavedSearchSummary {
     lodging,
     departDate: row.depart_date ?? undefined,
     returnDate: row.return_date ?? undefined,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    result: {
+      id: row.snapshot_key,
+      destinationSlug: row.destination_slug,
+      destinationName: row.destination_name,
+      status: row.status,
+      message: row.message,
+      provider: row.provider,
+      currentRange:
+        typeof row.min_price === "number" && typeof row.max_price === "number"
+          ? { min: row.min_price, max: row.max_price }
+          : undefined,
+      sampledDates: row.sampled_dates ?? undefined,
+      retrievedAt: row.retrieved_at ?? undefined,
+      sourceUrl: row.source_url ?? undefined,
+      sourceDetail: row.source_detail ?? undefined,
+      sourceKind: row.status === "checked" ? "cached" : row.source_kind
+    }
   };
 }
 
@@ -256,8 +283,9 @@ export async function listRecentSavedSearches(limit = 20): Promise<SavedSearchSu
   const rows = await db
     .prepare(
       `SELECT
-        snapshot_key, kind, travel_mode, mode, destination_slug, destination_name, origin,
-        depart_date, return_date, adults, updated_at
+        snapshot_key, kind, provider, travel_mode, mode, destination_slug, destination_name, origin,
+        depart_date, return_date, adults, status, message, min_price, max_price, sampled_dates,
+        retrieved_at, source_url, source_detail, source_kind, updated_at
        FROM price_snapshots
        WHERE status = 'checked'
          AND depart_date IS NOT NULL
@@ -265,7 +293,7 @@ export async function listRecentSavedSearches(limit = 20): Promise<SavedSearchSu
        ORDER BY updated_at DESC
        LIMIT ?1`
     )
-    .bind(Math.min(Math.max(Math.round(limit), 1), 50))
+    .bind(Math.min(Math.max(Math.round(limit), 1), 200))
     .all<SavedSearchRow>()
     .catch(() => ({ results: [] }));
 

@@ -63,9 +63,7 @@ function scenarioFromSnapshot(row: PriceSnapshotScenarioRow): DestinationScenari
       ...defaultTripPreferences,
       departure: row.origin ?? defaultTripPreferences.departure,
       travelMode,
-      flightCount: row.kind === "airfare"
-        ? row.adults ?? defaultTripPreferences.flightCount
-        : defaultTripPreferences.flightCount,
+      flightCount: row.adults ?? defaultTripPreferences.flightCount,
       nights: nightsBetween(row.depart_date, row.return_date),
       lodging: row.kind === "lodging" ? lodgingPreference(row.mode) : defaultTripPreferences.lodging,
       departDate: row.depart_date ?? undefined,
@@ -74,6 +72,13 @@ function scenarioFromSnapshot(row: PriceSnapshotScenarioRow): DestinationScenari
     },
     updatedAt: row.updated_at
   };
+}
+
+function newerScenario(current: DestinationScenario | undefined, candidate: DestinationScenario) {
+  if (!current) return candidate;
+  return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime()
+    ? candidate
+    : current;
 }
 
 export async function listDestinationScenarios(): Promise<DestinationScenario[]> {
@@ -96,9 +101,11 @@ export async function listDestinationScenarios(): Promise<DestinationScenario[]>
     .catch(() => ({ results: [] }));
   const scenarioBySlug = new Map<string, DestinationScenario>();
   for (const row of snapshotRows.results) {
-    if (!scenarioBySlug.has(row.destination_slug)) {
-      scenarioBySlug.set(row.destination_slug, scenarioFromSnapshot(row));
-    }
+    const scenario = scenarioFromSnapshot(row);
+    scenarioBySlug.set(
+      row.destination_slug,
+      newerScenario(scenarioBySlug.get(row.destination_slug), scenario)
+    );
   }
 
   const scenarioRows = await db
@@ -109,9 +116,10 @@ export async function listDestinationScenarios(): Promise<DestinationScenario[]>
   for (const scenario of scenarioRows.results
     .map(parseScenario)
     .filter((scenario): scenario is DestinationScenario => Boolean(scenario))) {
-    if (!scenarioBySlug.has(scenario.destinationSlug)) {
-      scenarioBySlug.set(scenario.destinationSlug, scenario);
-    }
+    scenarioBySlug.set(
+      scenario.destinationSlug,
+      newerScenario(scenarioBySlug.get(scenario.destinationSlug), scenario)
+    );
   }
 
   return [...scenarioBySlug.values()];

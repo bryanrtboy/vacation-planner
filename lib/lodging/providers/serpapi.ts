@@ -593,10 +593,22 @@ export async function sampleSerpApiLodging(
   try {
     const inspection = await inspectSerpApiLodging(context);
     if (!inspection.result) {
-      return unavailableResult(
-        context,
-        `No Google Hotels prices were returned for ${context.mode.label.toLowerCase()}.`
-      );
+      const rawCount = inspection.rawCandidates.length;
+      const compatibleCount = inspection.compatibleCandidates.length;
+      const summarizedCount = inspection.summarizedCandidates.length;
+      const message =
+        rawCount === 0
+          ? `Google Hotels returned no listings for ${context.mode.label.toLowerCase()} on these exact dates and guest settings. Try a shorter stay, nearby base, or another lodging type.`
+          : compatibleCount === 0
+            ? `Google Hotels returned ${rawCount} lodging result${
+                rawCount === 1 ? "" : "s"
+              }, but none matched the ${context.mode.label.toLowerCase()} and quality filters. Try another stay type or inspect the search results.`
+            : `Google Hotels returned ${rawCount} lodging result${
+                rawCount === 1 ? "" : "s"
+              } and ${compatibleCount} compatible ${context.mode.label.toLowerCase()} result${
+                compatibleCount === 1 ? "" : "s"
+              }, but only ${summarizedCount} remained after rating and outlier checks. Try another stay length, nearby base, or lodging type.`;
+      return unavailableResult(context, message);
     }
 
     return inspection.result;
