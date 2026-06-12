@@ -32,6 +32,65 @@ const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTransportFilter = "all";
 const noScoreSort = "none";
+const unitedStatesRegion = "United States";
+const usRegionNames = new Set([
+  "alabama",
+  "alaska",
+  "arizona",
+  "arkansas",
+  "california",
+  "colorado",
+  "connecticut",
+  "delaware",
+  "florida",
+  "georgia",
+  "hawaii",
+  "idaho",
+  "illinois",
+  "indiana",
+  "iowa",
+  "kansas",
+  "kentucky",
+  "louisiana",
+  "maine",
+  "maryland",
+  "massachusetts",
+  "michigan",
+  "minnesota",
+  "mississippi",
+  "missouri",
+  "montana",
+  "nebraska",
+  "nevada",
+  "new hampshire",
+  "new jersey",
+  "new mexico",
+  "new york",
+  "north carolina",
+  "north dakota",
+  "ohio",
+  "oklahoma",
+  "oregon",
+  "pennsylvania",
+  "rhode island",
+  "south carolina",
+  "south dakota",
+  "tennessee",
+  "texas",
+  "utah",
+  "vermont",
+  "virginia",
+  "washington",
+  "washington dc",
+  "district of columbia",
+  "west virginia",
+  "wisconsin",
+  "wyoming",
+  "pacific northwest",
+  "southwest",
+  "rocky mountains",
+  "new england"
+]);
 
 const airportOptions = [
   { code: "DEN", label: "Denver" },
@@ -159,6 +218,14 @@ function destinationMatchesInterests(destination: Destination, preferences: Trip
   });
 }
 
+function destinationMatchesRegion(destination: Destination, regionFilter: string) {
+  if (regionFilter === allRegionsFilter) return true;
+  if (destination.region === regionFilter) return true;
+  if (regionFilter !== unitedStatesRegion) return false;
+
+  return usRegionNames.has(destination.region.trim().toLowerCase());
+}
+
 function normalizeNights(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return defaultTripPreferences.nights;
@@ -236,6 +303,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
   const [focusedSavedSearch, setFocusedSavedSearch] = useState<SavedSearchSummary | null>(null);
   const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
+  const [photoOverrides, setPhotoOverrides] = useState<Record<string, string>>({});
   const [expandedDestinationSlugs, setExpandedDestinationSlugs] = useState<Set<string>>(
     () => new Set()
   );
@@ -251,7 +319,17 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     [destinations]
   );
   const regions = useMemo(
-    () => [...new Set(destinations.map((destination) => destination.region))].sort(),
+    () => {
+      const regionSet = new Set(destinations.map((destination) => destination.region));
+      if (
+        destinations.some((destination) =>
+          usRegionNames.has(destination.region.trim().toLowerCase())
+        )
+      ) {
+        regionSet.add(unitedStatesRegion);
+      }
+      return [...regionSet].sort();
+    },
     [destinations]
   );
   const transportModes = useMemo(
@@ -266,8 +344,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
 
     const filtered = destinations.filter((destination) => {
-      const regionMatches =
-        regionFilter === allRegionsFilter || destination.region === regionFilter;
+      const regionMatches = destinationMatchesRegion(destination, regionFilter);
       const transportMatches =
         transportFilter === allTransportFilter || destination.transport === transportFilter;
       const interestMatches = destinationMatchesInterests(destination, preferences.interests);
@@ -834,6 +911,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             }
             return next;
           })
+        }
+        photoUrl={photoOverrides[destination.slug] ?? destination.visualTheme.photoUrl}
+        onPhotoChange={(photoUrl) =>
+          setPhotoOverrides((current) => ({
+            ...current,
+            [destination.slug]: photoUrl
+          }))
         }
       />
     );

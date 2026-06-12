@@ -528,7 +528,7 @@ function PhotoTools({
 }: {
   destination: Destination;
   photoUrl: string;
-  onPhotoChange: (photoUrl: string) => void;
+  onPhotoChange?: (photoUrl: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(photoUrl);
@@ -553,7 +553,7 @@ function PhotoTools({
       });
       const data = (await response.json().catch(() => ({}))) as { message?: string; photoUrl?: string };
       if (!response.ok || !data.photoUrl) throw new Error(data.message ?? "Unable to save photo.");
-      onPhotoChange(data.photoUrl);
+      onPhotoChange?.(data.photoUrl);
       setValue(data.photoUrl);
       setMessage(data.message ?? "Photo saved.");
       setOpen(false);
@@ -1225,7 +1225,9 @@ export function DestinationCard({
   tripWindow,
   savedSearches = [],
   isExpanded,
-  onExpandedChange
+  onExpandedChange,
+  photoUrl,
+  onPhotoChange
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
@@ -1242,10 +1244,12 @@ export function DestinationCard({
   savedSearches?: SavedSearchSummary[];
   isExpanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
+  photoUrl?: string;
+  onPhotoChange?: (photoUrl: string) => void;
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
-  const [photoUrl, setPhotoUrl] = useState(theme.photoUrl);
+  const activePhotoUrl = photoUrl ?? theme.photoUrl;
   const isDriving = preferences.travelMode === "drive";
   const airfare = isDriving
     ? undefined
@@ -1283,9 +1287,9 @@ export function DestinationCard({
         <div
           className={`relative min-h-[246px] w-full overflow-hidden text-left text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-harbor/45 ${theme.bannerClass}`}
         >
-          {photoUrl ? (
+          {activePhotoUrl ? (
             <Image
-              src={photoUrl}
+              src={activePhotoUrl}
               alt=""
               fill
               unoptimized
@@ -1303,7 +1307,12 @@ export function DestinationCard({
             className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.64)_34%,rgba(0,0,0,0.32)_58%,rgba(0,0,0,0)_100%)]"
             aria-hidden="true"
           />
-          <PhotoTools destination={destination} photoUrl={photoUrl} onPhotoChange={setPhotoUrl} />
+          <PhotoTools
+            key={`${destination.slug}:${activePhotoUrl}:compact`}
+            destination={destination}
+            photoUrl={activePhotoUrl}
+            onPhotoChange={onPhotoChange}
+          />
           <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
             <div className="min-w-0 pb-14">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
@@ -1344,9 +1353,9 @@ export function DestinationCard({
       <div
         className={`relative min-h-[246px] overflow-hidden text-white ${theme.bannerClass}`}
       >
-        {photoUrl ? (
+        {activePhotoUrl ? (
           <Image
-            src={photoUrl}
+            src={activePhotoUrl}
             alt=""
             fill
             unoptimized
@@ -1360,7 +1369,12 @@ export function DestinationCard({
           className={`absolute inset-0 bg-gradient-to-b mix-blend-multiply ${theme.heroOverlayClass}`}
         />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.62)_34%,rgba(0,0,0,0.3)_58%,rgba(0,0,0,0)_100%)]" />
-        <PhotoTools destination={destination} photoUrl={photoUrl} onPhotoChange={setPhotoUrl} />
+        <PhotoTools
+          key={`${destination.slug}:${activePhotoUrl}:expanded`}
+          destination={destination}
+          photoUrl={activePhotoUrl}
+          onPhotoChange={onPhotoChange}
+        />
         <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
           <div className="min-w-0 pb-14">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
