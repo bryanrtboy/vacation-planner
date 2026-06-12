@@ -440,6 +440,23 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       // Saved searches are an optional D1 enhancement.
     }
   }, []);
+  const persistDestinationScenarios = useCallback(
+    (slugs: string[], activePreferences: TripPreferences) => {
+      void Promise.all(
+        slugs.map((destinationSlug) =>
+          fetch("/api/destination-scenarios", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              destinationSlug,
+              preferences: activePreferences
+            })
+          }).catch(() => undefined)
+        )
+      );
+    },
+    []
+  );
 
   useEffect(() => {
     function syncPreferences() {
@@ -670,6 +687,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
         setLodgingUsage(data.usage);
+        persistDestinationScenarios(
+          data.results
+            .filter((result) => result.status === "checked")
+            .map((result) => result.destinationSlug),
+          activePreferences
+        );
         void refreshSavedSearches();
         setStatusMessage(
           data.results.some((result) => result.status === "checked")
@@ -702,7 +725,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [destinations, preferences, refreshSavedSearches, snapshotKey, tripWindowFor]
+    [destinations, persistDestinationScenarios, preferences, refreshSavedSearches, snapshotKey, tripWindowFor]
   );
 
   const refreshLodgingSnapshots = useCallback(
@@ -739,6 +762,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         writeStoredLodgingSnapshots(nextSnapshots);
         setLodgingSnapshots(nextSnapshots);
+        persistDestinationScenarios(
+          data.results
+            .filter((result) => result.status === "checked")
+            .map((result) => result.destinationSlug),
+          activePreferences
+        );
         void refreshSavedSearches();
         setLodgingStatusMessage(
           data.results.some((result) => result.status === "checked")
@@ -755,7 +784,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [destinations, lodgingKey, preferences, refreshSavedSearches, tripWindowFor]
+    [destinations, lodgingKey, persistDestinationScenarios, preferences, refreshSavedSearches, tripWindowFor]
   );
 
   const hydrateScenarioSnapshots = useCallback(
