@@ -34,3 +34,20 @@ select {
 .text-balance {
   text-wrap: balance;
 }
+
+@keyframes ai-sparkle-pulse {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: scale(1) rotate(0deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.18) rotate(10deg);
+  }
+}
+
+.ai-sparkle {
+  animation: ai-sparkle-pulse 1.65s ease-in-out infinite;
+  transform-origin: center;
+}

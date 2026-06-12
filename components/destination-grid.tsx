@@ -41,7 +41,7 @@ const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
 const initialVisibleDestinations = 9;
 const destinationPageSize = 6;
 const allRegionsFilter = "all";
-const allTransportFilter = "all";
+const allTravelFilter = "all";
 const allInterestsFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
@@ -401,7 +401,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [regionFilter, setRegionFilter] = useState(allRegionsFilter);
   const [libraryInterestFilter, setLibraryInterestFilter] = useState(allInterestsFilter);
   const [resultFiltersOpen, setResultFiltersOpen] = useState(false);
-  const [transportFilter, setTransportFilter] = useState(allTransportFilter);
+  const [travelFilter, setTravelFilter] = useState(allTravelFilter);
   const [scoreSort, setScoreSort] = useState<keyof Destination["fit"] | typeof noScoreSort>(
     noScoreSort
   );
@@ -438,10 +438,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     },
     [destinations]
   );
-  const transportModes = useMemo(
-    () => [...new Set(destinations.map((destination) => destination.transport))].sort(),
-    [destinations]
-  );
   const libraryInterestOptions = useMemo(
     () =>
       resultInterestOptions
@@ -454,6 +450,21 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         .filter((option) => option.count > 0),
     [destinations]
   );
+  const destinationHasDriveOption = useCallback(
+    (destination: Destination) =>
+      scenarioOverrides[destination.slug]?.travelMode === "drive" ||
+      savedSearches.some(
+        (search) => search.destinationSlug === destination.slug && search.travelMode === "drive"
+      ),
+    [savedSearches, scenarioOverrides]
+  );
+  const destinationHasFlyOption = useCallback(
+    (destination: Destination) =>
+      savedSearches.some(
+        (search) => search.destinationSlug === destination.slug && search.travelMode === "fly"
+      ) || !destinationHasDriveOption(destination),
+    [destinationHasDriveOption, savedSearches]
+  );
   const filteredDestinations = useMemo(() => {
     if (focusedSavedSearch) {
       return destinations.filter(
@@ -463,12 +474,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
     const filtered = destinations.filter((destination) => {
       const regionMatches = destinationMatchesRegion(destination, regionFilter);
-      const transportMatches =
-        transportFilter === allTransportFilter || destination.transport === transportFilter;
+      const travelMatches =
+        travelFilter === allTravelFilter ||
+        (travelFilter === "drive"
+          ? destinationHasDriveOption(destination)
+          : destinationHasFlyOption(destination));
       const interestMatches =
         libraryInterestFilter === allInterestsFilter ||
         destinationMatchesInterests(destination, libraryInterestFilter);
-      return regionMatches && transportMatches && interestMatches;
+      return regionMatches && travelMatches && interestMatches;
     });
 
     if (scoreSort === noScoreSort) return filtered;
@@ -480,10 +494,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [
     destinations,
     focusedSavedSearch,
+    destinationHasDriveOption,
+    destinationHasFlyOption,
     libraryInterestFilter,
     regionFilter,
     scoreSort,
-    transportFilter
+    travelFilter
   ]);
   const visibleDestinations = useMemo(
     () => filteredDestinations.slice(0, visibleCount),
@@ -610,7 +626,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const filtersActive =
     regionFilter !== allRegionsFilter ||
     libraryInterestFilter !== allInterestsFilter ||
-    transportFilter !== allTransportFilter ||
+    travelFilter !== allTravelFilter ||
     scoreSort !== noScoreSort ||
     Boolean(focusedSavedSearch);
   const refreshSavedSearches = useCallback(async () => {
@@ -1068,7 +1084,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
       setFocusedSavedSearch(savedSearch);
       setRegionFilter(allRegionsFilter);
-      setTransportFilter(allTransportFilter);
+      setTravelFilter(allTravelFilter);
       setScoreSort(noScoreSort);
       setVisibleCount(initialVisibleDestinations);
 
@@ -1480,9 +1496,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               type="button"
               onClick={() => void suggestDestinations()}
               disabled={suggestingDestinations || aiUsage?.remaining === 0}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white bg-white px-3 text-xs font-semibold text-harbor transition hover:bg-white/90 disabled:cursor-not-allowed disabled:border-white/20 disabled:bg-white/10 disabled:text-white/36"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#8fd3ff]/45 bg-[#1f76c2] px-3 text-xs font-semibold text-white shadow-[0_8px_18px_rgb(10_52_92_/_0.22)] transition hover:bg-[#185f9e] disabled:cursor-not-allowed disabled:border-white/20 disabled:bg-white/10 disabled:text-white/36 disabled:shadow-none"
             >
-              <Sparkles size={14} aria-hidden="true" />
+              <Sparkles
+                size={14}
+                className={suggestingDestinations ? "animate-spin" : "ai-sparkle"}
+                aria-hidden="true"
+              />
               {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
             </button>
           </div>
@@ -1642,18 +1662,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             </select>
           </label>
           <label className="grid min-w-40 gap-1">
-            <span className="font-semibold uppercase tracking-wide text-ink/38">Transport</span>
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Travel</span>
             <select
-              value={transportFilter}
-              onChange={(event) => setTransportFilter(event.target.value)}
+              value={travelFilter}
+              onChange={(event) => setTravelFilter(event.target.value)}
               className={libraryFieldClass}
             >
-              <option value={allTransportFilter}>all transport</option>
-              {transportModes.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
+              <option value={allTravelFilter}>fly or drive</option>
+              <option value="fly">fly</option>
+              <option value="drive">drive</option>
             </select>
           </label>
           <label className="grid min-w-40 gap-1">
@@ -1679,7 +1696,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 setFocusedSavedSearch(null);
                 setRegionFilter(allRegionsFilter);
                 setLibraryInterestFilter(allInterestsFilter);
-                setTransportFilter(allTransportFilter);
+                setTravelFilter(allTravelFilter);
                 setScoreSort(noScoreSort);
               }}
               className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"

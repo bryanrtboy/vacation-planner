@@ -992,13 +992,13 @@ function ScenarioSummary({
                 key={search.id}
                 type="button"
                 onClick={() => applySavedSearch(search)}
-                className="rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-left text-xs transition hover:border-harbor/30 hover:text-harbor"
+                className={`rounded-md border px-2.5 py-1.5 text-left text-xs shadow-[0_7px_16px_rgb(0_0_0_/_0.12)] transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/25 ${destination.visualTheme.highlightClass}`}
               >
-                <span className="block font-semibold text-ink">
+                <span className="block font-semibold text-white">
                   {savedSearchKindLabel(search)}
                   {savedSearchPriceText(search) ? ` · ${savedSearchPriceText(search)}` : ""}
                 </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-ink/45">
+                <span className="mt-0.5 block text-[11px] leading-4 text-white/78">
                   {savedSearchTitle(search)}
                 </span>
               </button>
