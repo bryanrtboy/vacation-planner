@@ -11,6 +11,7 @@ type SerpApiRate = {
 
 type SerpApiHotelProperty = {
   name?: string;
+  type?: string;
   link?: string;
   price?: string;
   extracted_price?: number;
@@ -76,6 +77,62 @@ function totalRate(property: SerpApiHotelProperty, nights: number) {
   return null;
 }
 
+type LodgingCandidate = {
+  name: string;
+  nightly: number;
+  total: number;
+};
+
+const outdoorLodgingPattern =
+  /\b(camp|camping|campsite|tent|rv|yurt|glamping|hostel|dorm|shared room)\b/i;
+const hotelBrandPattern =
+  /\b(hotel|inn|motel|hilton|hyatt|marriott|sheraton|wyndham|la quinta|holiday inn|quality inn|comfort inn|hampton|home2|candlewood|best western|travelodge|days inn|super 8)\b/i;
+const homeRentalPattern =
+  /\b(apartment|studio|condo|flat|loft|bungalow|cottage|guesthouse|guest house|house|home|cabin|suite|retreat|townhouse|villa)\b/i;
+const groupRentalPattern = /\b(house|home|cottage|cabin|villa|townhouse|retreat|bungalow)\b/i;
+
+function candidateForProperty(property: SerpApiHotelProperty, nights: number): LodgingCandidate | null {
+  const total = totalRate(property, nights);
+  if (typeof total !== "number") return null;
+
+  const nightly = total / nights;
+  if (!Number.isFinite(nightly) || nightly <= 0) return null;
+
+  return {
+    name: property.name ?? "Unnamed lodging",
+    nightly,
+    total
+  };
+}
+
+function candidateMatchesMode(candidate: LodgingCandidate, mode: LodgingMode) {
+  if (outdoorLodgingPattern.test(candidate.name)) return false;
+
+  if (mode.id === "hotel") return !outdoorLodgingPattern.test(candidate.name);
+  if (hotelBrandPattern.test(candidate.name)) return false;
+  if (mode.id === "group-house") return groupRentalPattern.test(candidate.name);
+
+  return homeRentalPattern.test(candidate.name);
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((first, second) => first - second);
+  const middle = Math.floor(sorted.length / 2);
+  if (!sorted.length) return undefined;
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function removeLowOutliers(candidates: LodgingCandidate[]) {
+  if (candidates.length < 5) return candidates;
+
+  const medianNightly = median(candidates.map((candidate) => candidate.nightly));
+  if (typeof medianNightly !== "number") return candidates;
+
+  const floor = medianNightly * 0.6;
+  const filtered = candidates.filter((candidate) => candidate.nightly >= floor);
+  return filtered.length >= 3 ? filtered : candidates;
+}
+
 function unavailableResult(
   context: LodgingSearchContext,
   message: string,
@@ -104,10 +161,16 @@ function normalizeLodging(
   context: LodgingSearchContext
 ): WatchRefreshResult | null {
   const nights = nightsBetween(context.tripWindow);
-  const totals = (data.properties ?? [])
-    .map((property) => totalRate(property, nights))
-    .filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price > 0)
-    .sort((first, second) => first - second);
+  const rawCandidates = (data.properties ?? [])
+    .map((property) => candidateForProperty(property, nights))
+    .filter((candidate): candidate is LodgingCandidate => Boolean(candidate));
+  const modeCandidates = rawCandidates.filter((candidate) =>
+    candidateMatchesMode(candidate, context.mode)
+  );
+  const candidates = removeLowOutliers(modeCandidates).sort(
+    (first, second) => first.total - second.total
+  );
+  const totals = candidates.map((candidate) => candidate.total);
 
   if (!totals.length) return null;
 
@@ -130,9 +193,12 @@ function normalizeLodging(
     currentRange: { min, max },
     sampledDates: `${context.tripWindow.departDate}-${context.tripWindow.returnDate}`,
     retrievedAt: new Date().toISOString(),
-    sourceUrl: googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
     sourceDetail:
-      "Lodging checked through Google Hotels. Total-stay prices are cross-checked against nightly rates when both are returned, then summarized as the lowest plausible price cluster before detailed property review.",
+      `Lodging checked through Google Hotels using exact SerpApi dates. Filtered ${rawCandidates.length} raw result${
+        rawCandidates.length === 1 ? "" : "s"
+      } to ${modeCandidates.length} ${context.mode.label.toLowerCase()}-compatible result${
+        modeCandidates.length === 1 ? "" : "s"
+      }, removed implausibly low outliers, and summarized the lowest plausible total-stay price cluster. Google Travel public links may ignore date parameters, so this checked quote is not linked as an exact booking URL.`,
     sourceKind: "live"
   };
 }
