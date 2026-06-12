@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BedDouble, CalendarDays, Car, MapPin, Palette, Plane, Sparkles, Users } from "lucide-react";
+import {
+  BedDouble,
+  CalendarDays,
+  Car,
+  ChevronDown,
+  MapPin,
+  Palette,
+  Plane,
+  SlidersHorizontal,
+  Sparkles,
+  Users
+} from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
 import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
 import {
@@ -31,6 +42,7 @@ const initialVisibleDestinations = 9;
 const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTransportFilter = "all";
+const allInterestsFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
 const usRegionNames = new Set([
@@ -152,6 +164,10 @@ type DestinationScenarioResponse = {
   }[];
 };
 
+type CheckedScenario = Partial<TripPreferences> & {
+  updatedAt?: string;
+};
+
 const interestSynonyms: Record<string, string[]> = {
   art: ["art", "gallery", "galleries", "museum", "museums", "design", "ceramics", "mosaics"],
   craft: ["craft", "ceramics", "tile", "tiles", "print", "workshops", "studio"],
@@ -224,6 +240,36 @@ function destinationMatchesInterests(destination: Destination, preferences: Trip
     const termsToMatch = interestSynonyms[term] ?? [term];
     return termsToMatch.some((candidate) => text.includes(candidate));
   });
+}
+
+function checkedNightsBetween(departDate: string | undefined, returnDate: string | undefined) {
+  if (!departDate || !returnDate) return undefined;
+  const start = new Date(`${departDate}T00:00:00Z`).getTime();
+  const end = new Date(`${returnDate}T00:00:00Z`).getTime();
+  const nights = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(nights) && nights > 0 ? nights : undefined;
+}
+
+function lodgingPreferenceFromSnapshotMode(mode: string | undefined) {
+  if (mode === "hotel") return "hotels";
+  if (mode === "group-house") return "group house rentals";
+  if (mode === "apartment") return "apartments for 2";
+  return undefined;
+}
+
+function newerScenario(current: CheckedScenario | undefined, candidate: CheckedScenario) {
+  if (!current?.updatedAt) return candidate;
+  if (!candidate.updatedAt) return current;
+  return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime()
+    ? candidate
+    : current;
+}
+
+function definedScenario(scenario: CheckedScenario | undefined) {
+  if (!scenario) return {};
+  return Object.fromEntries(
+    Object.entries(scenario).filter(([, value]) => value !== undefined)
+  ) as Partial<TripPreferences>;
 }
 
 function destinationMatchesRegion(destination: Destination, regionFilter: string) {
@@ -318,9 +364,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     useState<StoredFareSnapshots>(readStoredLodgingSnapshots);
   const [preferences, setPreferences] = useState<TripPreferences>(defaultTripPreferences);
   const [generatorRegion, setGeneratorRegion] = useState(allRegionsFilter);
+  const [generatorControlsOpen, setGeneratorControlsOpen] = useState(false);
   const [customNightsOpen, setCustomNightsOpen] = useState(false);
   const [customInterestsOpen, setCustomInterestsOpen] = useState(false);
   const [regionFilter, setRegionFilter] = useState(allRegionsFilter);
+  const [libraryInterestFilter, setLibraryInterestFilter] = useState(allInterestsFilter);
+  const [resultFiltersOpen, setResultFiltersOpen] = useState(false);
   const [transportFilter, setTransportFilter] = useState(allTransportFilter);
   const [scoreSort, setScoreSort] = useState<keyof Destination["fit"] | typeof noScoreSort>(
     noScoreSort
@@ -373,7 +422,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       const regionMatches = destinationMatchesRegion(destination, regionFilter);
       const transportMatches =
         transportFilter === allTransportFilter || destination.transport === transportFilter;
-      const interestMatches = destinationMatchesInterests(destination, preferences.interests);
+      const interestMatches =
+        libraryInterestFilter === allInterestsFilter ||
+        destinationMatchesInterests(destination, libraryInterestFilter);
       return regionMatches && transportMatches && interestMatches;
     });
 
@@ -386,7 +437,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [
     destinations,
     focusedSavedSearch,
-    preferences.interests,
+    libraryInterestFilter,
     regionFilter,
     scoreSort,
     transportFilter
@@ -395,12 +446,79 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     () => filteredDestinations.slice(0, visibleCount),
     [filteredDestinations, visibleCount]
   );
+  const savedCheckedScenarios = useMemo(() => {
+    const bySlug = new Map<string, CheckedScenario>();
+    const sortedSearches = [...savedSearches].sort(
+      (first, second) =>
+        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime()
+    );
+
+    for (const search of sortedSearches) {
+      const scenario: CheckedScenario = {
+        departure: search.departure,
+        travelMode: search.travelMode,
+        flightCount: search.flightCount,
+        nights: search.nights,
+        lodging: search.lodging,
+        departDate: search.departDate,
+        returnDate: search.returnDate,
+        travelSeason: search.departDate && search.returnDate ? "saved" : undefined,
+        updatedAt: search.updatedAt
+      };
+      bySlug.set(search.destinationSlug, newerScenario(bySlug.get(search.destinationSlug), scenario));
+    }
+
+    return bySlug;
+  }, [savedSearches]);
+  const localCheckedScenarios = useMemo(() => {
+    const bySlug = new Map<string, CheckedScenario>();
+
+    for (const [key, result] of Object.entries(lodgingSnapshots)) {
+      if (result.status !== "checked") continue;
+      const [travelMode, , slug, mode, departDate, returnDate, adults] = key.split(":");
+      if (!slug || !departDate || !returnDate) continue;
+      const scenario: CheckedScenario = {
+        travelMode: travelMode === "drive" ? "drive" : "fly",
+        flightCount: Number(adults) || undefined,
+        nights: checkedNightsBetween(departDate, returnDate),
+        lodging: lodgingPreferenceFromSnapshotMode(mode),
+        departDate,
+        returnDate,
+        travelSeason: "saved",
+        updatedAt: result.retrievedAt
+      };
+      bySlug.set(slug, newerScenario(bySlug.get(slug), scenario));
+    }
+
+    for (const [key, result] of Object.entries(snapshots)) {
+      if (result.status !== "checked") continue;
+      const [slug, travelMode, departure, flightCount, departDate, returnDate] = key.split(":");
+      if (!slug || !departDate || !returnDate) continue;
+      const scenario: CheckedScenario = {
+        travelMode: travelMode === "drive" ? "drive" : "fly",
+        departure,
+        flightCount: Number(flightCount) || undefined,
+        nights: checkedNightsBetween(departDate, returnDate),
+        departDate,
+        returnDate,
+        travelSeason: "saved",
+        updatedAt: result.retrievedAt
+      };
+      bySlug.set(slug, newerScenario(bySlug.get(slug), scenario));
+    }
+
+    return bySlug;
+  }, [lodgingSnapshots, snapshots]);
   const scenarioPreferences = useCallback(
-    (slug: string) => ({
-      ...preferences,
-      ...scenarioOverrides[slug]
-    }),
-    [preferences, scenarioOverrides]
+    (slug: string) => {
+      const checkedScenario = savedCheckedScenarios.get(slug) ?? localCheckedScenarios.get(slug);
+      return {
+        ...preferences,
+        ...definedScenario(checkedScenario),
+        ...scenarioOverrides[slug]
+      };
+    },
+    [localCheckedScenarios, preferences, savedCheckedScenarios, scenarioOverrides]
   );
   const tripWindowFor = useCallback(
     (destination: Destination, activePreferences: TripPreferences) =>
@@ -427,6 +545,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const hasMoreDestinations = visibleCount < filteredDestinations.length;
   const filtersActive =
     regionFilter !== allRegionsFilter ||
+    libraryInterestFilter !== allInterestsFilter ||
     transportFilter !== allTransportFilter ||
     scoreSort !== noScoreSort ||
     Boolean(focusedSavedSearch);
@@ -985,6 +1104,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
     const activeLodgingKey = lodgingKey(destination, activePreferences, tripWindow);
     const isExpanded = expandedDestinationSlugs.has(destination.slug);
+    const hasCheckedScenario =
+      snapshots[fareKey]?.status === "checked" ||
+      lodgingSnapshots[activeLodgingKey]?.status === "checked";
+    const hasCheckedFallback =
+      Boolean(savedCheckedScenarios.get(destination.slug)) ||
+      Boolean(localCheckedScenarios.get(destination.slug));
 
     return (
       <DestinationCard
@@ -1009,7 +1134,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         tripWindow={tripWindow}
         savedSearches={savedSearches}
         isExpanded={isExpanded}
-        onExpandedChange={(expanded) =>
+        onExpandedChange={(expanded) => {
+          if (!expanded && !hasCheckedScenario && hasCheckedFallback) {
+            setScenarioOverrides((current) => {
+              const next = { ...current };
+              delete next[destination.slug];
+              return next;
+            });
+          }
           setExpandedDestinationSlugs((current) => {
             const next = new Set(current);
             if (expanded) {
@@ -1018,8 +1150,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               next.delete(destination.slug);
             }
             return next;
-          })
-        }
+          });
+        }}
         photoUrl={photoOverrides[destination.slug] ?? destination.visualTheme.photoUrl}
         onPhotoChange={(photoUrl) =>
           setPhotoOverrides((current) => ({
@@ -1039,7 +1171,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       ? preferences.interests
       : "custom";
   const generatorFieldClass =
-    "mt-1 h-9 w-full rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-clay/45";
+    "mt-1 h-9 w-full rounded-md border border-white/30 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-white/80 focus:ring-2 focus:ring-white/20";
   const libraryFieldClass =
     "h-9 rounded-md border border-ink/12 bg-white px-2 text-sm font-semibold text-ink outline-none transition focus:border-harbor/45";
   const activityStatusMessage = checkingCount
@@ -1052,57 +1184,80 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   return (
     <>
-      <div className="mb-4 rounded-md border border-clay/20 bg-clay/[0.035] px-3 py-3 shadow-[0_10px_28px_rgb(112_62_38_/_0.08)]">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-clay">
-            <Sparkles size={15} aria-hidden="true" />
-            Idea Generator
-          </span>
+      <div className="mb-4 rounded-md bg-harbor px-4 py-4 text-white shadow-[0_18px_42px_rgb(43_86_96_/_0.18)] sm:px-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">Trip Ideas</h1>
+            <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-white/72">
+              Curated places with enough context to compare costs, dates, scores, and tradeoffs.
+            </p>
+          </div>
           {aiUsage ? (
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
+            <span className="rounded-full border border-white/18 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/76">
               {aiUsage.remaining}/{aiUsage.limit} left today
             </span>
           ) : null}
         </div>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <Plane size={14} className="text-clay/72" aria-hidden="true" />
-              Travel
-            </span>
-            <div className="mt-1 grid h-9 grid-cols-2 rounded-md border border-ink/12 bg-white p-0.5">
-              {[
-                { value: "fly", label: "Fly", icon: Plane },
-                { value: "drive", label: "Drive", icon: Car }
-              ].map((option) => {
-                const Icon = option.icon;
-                const active = (preferences.travelMode ?? "fly") === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() =>
-                      updateGeneratorPreferences({
-                        travelMode: option.value as TripPreferences["travelMode"]
-                      })
-                    }
-                    className={`inline-flex items-center justify-center gap-1 rounded-[4px] text-xs font-semibold transition ${
-                      active
-                        ? "bg-clay text-white"
-                        : "text-ink/58 hover:bg-ink/[0.04] hover:text-ink"
-                    }`}
-                    aria-pressed={active}
-                  >
-                    <Icon size={13} aria-hidden="true" />
-                    {option.label}
-                  </button>
-                );
-              })}
+        <button
+          type="button"
+          onClick={() => setGeneratorControlsOpen((current) => !current)}
+          className="mb-3 flex w-full items-center justify-between rounded-md border border-white/16 bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white/82 md:hidden"
+          aria-expanded={generatorControlsOpen}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Sparkles size={15} aria-hidden="true" />
+            Idea Generator
+          </span>
+          <ChevronDown
+            size={16}
+            className={`transition ${generatorControlsOpen ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+        <div className="mb-3 hidden items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/82 md:inline-flex">
+          <Sparkles size={15} aria-hidden="true" />
+          Idea Generator
+        </div>
+        <div className={`${generatorControlsOpen ? "block" : "hidden"} md:block`}>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+            <div className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+              <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+                <Plane size={14} className="text-white/68" aria-hidden="true" />
+                Travel
+              </span>
+              <div className="mt-1 grid h-9 grid-cols-2 rounded-md border border-white/20 bg-white/10 p-0.5">
+                {[
+                  { value: "fly", label: "Fly", icon: Plane },
+                  { value: "drive", label: "Drive", icon: Car }
+                ].map((option) => {
+                  const Icon = option.icon;
+                  const active = (preferences.travelMode ?? "fly") === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        updateGeneratorPreferences({
+                          travelMode: option.value as TripPreferences["travelMode"]
+                        })
+                      }
+                      className={`inline-flex items-center justify-center gap-1 rounded-[4px] text-xs font-semibold transition ${
+                        active
+                          ? "bg-white text-harbor shadow-sm"
+                          : "text-white/76 hover:bg-white/10 hover:text-white"
+                      }`}
+                      aria-pressed={active}
+                    >
+                      <Icon size={13} aria-hidden="true" />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <MapPin size={14} className="text-clay/72" aria-hidden="true" />
+            <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <MapPin size={14} className="text-white/68" aria-hidden="true" />
               Departure
             </span>
             <input
@@ -1121,9 +1276,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               ))}
             </datalist>
           </label>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <Users size={14} className="text-clay/72" aria-hidden="true" />
+          <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <Users size={14} className="text-white/68" aria-hidden="true" />
               Travelers
             </span>
             <input
@@ -1137,9 +1292,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               }
             />
           </label>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <CalendarDays size={14} className="text-clay/72" aria-hidden="true" />
+          <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <CalendarDays size={14} className="text-white/68" aria-hidden="true" />
               Nights
             </span>
             <select
@@ -1184,9 +1339,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               />
             ) : null}
           </label>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <BedDouble size={14} className="text-clay/72" aria-hidden="true" />
+          <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <BedDouble size={14} className="text-white/68" aria-hidden="true" />
               Lodging
             </span>
             <select
@@ -1204,9 +1359,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               ))}
             </select>
           </label>
-          <label className="rounded-md border border-clay/12 bg-white/72 px-3 py-2 xl:col-span-1">
-            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-ink/38">
-              <Palette size={14} className="text-clay/72" aria-hidden="true" />
+          <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2 xl:col-span-1">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <Palette size={14} className="text-white/68" aria-hidden="true" />
               Interests
             </span>
             <select
@@ -1236,15 +1391,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 }
               />
             ) : null}
-          </label>
-        </div>
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <label className="grid min-w-44 gap-1 text-xs text-ink/58">
-            <span className="font-semibold uppercase tracking-wide text-ink/38">Region</span>
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="grid min-w-44 gap-1 text-xs text-white/72">
+            <span className="font-semibold uppercase tracking-wide text-white/64">Region</span>
             <select
               value={generatorRegion}
               onChange={(event) => setGeneratorRegion(event.target.value)}
-              className={libraryFieldClass}
+              className={generatorFieldClass}
             >
               <option value={allRegionsFilter}>all regions</option>
               {regions.map((region) => (
@@ -1253,100 +1408,19 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 </option>
               ))}
             </select>
-          </label>
-          <button
-            type="button"
-            onClick={() => void suggestDestinations()}
-            disabled={suggestingDestinations || aiUsage?.remaining === 0}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-clay bg-clay px-3 text-xs font-semibold text-white transition hover:bg-clay/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/5 disabled:text-ink/30"
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
-          </button>
+            </label>
+            <button
+              type="button"
+              onClick={() => void suggestDestinations()}
+              disabled={suggestingDestinations || aiUsage?.remaining === 0}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white bg-white px-3 text-xs font-semibold text-harbor transition hover:bg-white/90 disabled:cursor-not-allowed disabled:border-white/20 disabled:bg-white/10 disabled:text-white/36"
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
+            </button>
+          </div>
         </div>
       </div>
-
-      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-md border border-ink/8 bg-white/45 px-3 py-2 text-xs text-ink/58">
-        <label className="grid min-w-36 gap-1">
-          <span className="font-semibold uppercase tracking-wide text-ink/38">Library region</span>
-          <select
-            value={regionFilter}
-            onChange={(event) => setRegionFilter(event.target.value)}
-            className={libraryFieldClass}
-          >
-            <option value={allRegionsFilter}>all regions</option>
-            {regions.map((region) => (
-              <option key={region} value={region}>
-                {region}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="grid min-w-40 gap-1">
-          <span className="font-semibold uppercase tracking-wide text-ink/38">Transport</span>
-          <select
-            value={transportFilter}
-            onChange={(event) => setTransportFilter(event.target.value)}
-            className={libraryFieldClass}
-          >
-            <option value={allTransportFilter}>all transport</option>
-            {transportModes.map((mode) => (
-              <option key={mode} value={mode}>
-                {mode}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="grid min-w-40 gap-1">
-          <span className="font-semibold uppercase tracking-wide text-ink/38">Sort by score</span>
-          <select
-            value={scoreSort}
-            onChange={(event) =>
-              setScoreSort(event.target.value as keyof Destination["fit"] | typeof noScoreSort)
-            }
-            className={libraryFieldClass}
-          >
-            <option value={noScoreSort}>original order</option>
-            <option value="art">art</option>
-            <option value="gardens">gardens</option>
-            <option value="food">food</option>
-            <option value="landscape">landscape</option>
-          </select>
-        </label>
-        {filtersActive ? (
-          <button
-            type="button"
-            onClick={() => {
-              setFocusedSavedSearch(null);
-              setRegionFilter(allRegionsFilter);
-              setTransportFilter(allTransportFilter);
-              setScoreSort(noScoreSort);
-            }}
-            className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
-          >
-            Clear
-          </button>
-        ) : null}
-      </div>
-
-      {focusedSavedSearch ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-harbor/18 bg-harbor/8 px-3 py-2 text-xs text-ink/62">
-          <span>
-            Viewing saved check:{" "}
-            <span className="font-semibold text-ink">
-              {focusedSavedSearch.destinationName}
-            </span>{" "}
-            · {focusedSavedSearch.detail}
-          </span>
-          <button
-            type="button"
-            onClick={() => setFocusedSavedSearch(null)}
-            className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
-          >
-            Show all ideas
-          </button>
-        </div>
-      ) : null}
 
       {suggestions.length || suggestionStatusMessage ? (
         <div className="mb-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3">
@@ -1414,68 +1488,198 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         </div>
       ) : null}
 
-      {visibleDestinations.length ? (
-        <div className="mb-5 flex flex-wrap items-center justify-end gap-2 text-xs text-ink/58">
-          <span className="flex flex-wrap gap-2">
+      <section className="rounded-md border border-ink/8 bg-white/45 px-3 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/38">
+              Results
+            </p>
+            <p className="mt-1 text-xs font-semibold text-ink/45">
+              Showing {shownCount} of {filteredDestinations.length}
+            </p>
+          </div>
+          {visibleDestinations.length ? (
+            <div className="flex flex-wrap gap-2 text-xs text-ink/58">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedDestinationSlugs(
+                    new Set(visibleDestinations.map((destination) => destination.slug))
+                  )
+                }
+                className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpandedDestinationSlugs(new Set())}
+                className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+              >
+              Collapse all
+            </button>
+          </div>
+        ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setResultFiltersOpen((current) => !current)}
+          className="mt-3 flex w-full items-center justify-between rounded-md border border-ink/10 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-ink/56 md:hidden"
+          aria-expanded={resultFiltersOpen}
+        >
+          <span className="inline-flex items-center gap-2">
+            <SlidersHorizontal size={14} aria-hidden="true" />
+            Filters
+          </span>
+          <ChevronDown
+            size={16}
+            className={`transition ${resultFiltersOpen ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
+        </button>
+
+        <div
+          className={`mt-3 flex-wrap items-end gap-3 border-t border-ink/8 pt-3 text-xs text-ink/58 ${
+            resultFiltersOpen ? "flex" : "hidden"
+          } md:flex`}
+        >
+          <label className="grid min-w-36 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Region</span>
+            <select
+              value={regionFilter}
+              onChange={(event) => setRegionFilter(event.target.value)}
+              className={libraryFieldClass}
+            >
+              <option value={allRegionsFilter}>all regions</option>
+              {regions.map((region) => (
+                <option key={region} value={region}>
+                  {region}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-52 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Interests</span>
+            <select
+              value={libraryInterestFilter}
+              onChange={(event) => setLibraryInterestFilter(event.target.value)}
+              className={libraryFieldClass}
+            >
+              <option value={allInterestsFilter}>all interests</option>
+              {interestOptions
+                .filter((option) => option !== "custom")
+                .map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="grid min-w-40 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Transport</span>
+            <select
+              value={transportFilter}
+              onChange={(event) => setTransportFilter(event.target.value)}
+              className={libraryFieldClass}
+            >
+              <option value={allTransportFilter}>all transport</option>
+              {transportModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid min-w-40 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Sort by score</span>
+            <select
+              value={scoreSort}
+              onChange={(event) =>
+                setScoreSort(event.target.value as keyof Destination["fit"] | typeof noScoreSort)
+              }
+              className={libraryFieldClass}
+            >
+              <option value={noScoreSort}>original order</option>
+              <option value="art">art</option>
+              <option value="gardens">gardens</option>
+              <option value="food">food</option>
+              <option value="landscape">landscape</option>
+            </select>
+          </label>
+          {filtersActive ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFocusedSavedSearch(null);
+                setRegionFilter(allRegionsFilter);
+                setLibraryInterestFilter(allInterestsFilter);
+                setTransportFilter(allTransportFilter);
+                setScoreSort(noScoreSort);
+              }}
+              className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
+        {focusedSavedSearch ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-harbor/18 bg-harbor/8 px-3 py-2 text-xs text-ink/62">
+            <span>
+              Viewing saved check:{" "}
+              <span className="font-semibold text-ink">
+                {focusedSavedSearch.destinationName}
+              </span>{" "}
+              · {focusedSavedSearch.detail}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFocusedSavedSearch(null)}
+              className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+            >
+              Show all ideas
+            </button>
+          </div>
+        ) : null}
+
+        <div className="mt-6">
+          {visibleDestinations.length ? (
+            <>
+              <div className="grid gap-6 md:hidden">
+                {visibleDestinations.map((destination) => renderDestinationCard(destination))}
+              </div>
+              <div className="hidden gap-6 md:grid md:grid-cols-2">
+                {desktopColumns.map((column, index) => (
+                  <div key={index} className="min-w-0">
+                    {column.map((destination) => renderDestinationCard(destination))}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-md border border-ink/8 bg-white/60 px-4 py-8 text-center text-sm font-medium text-ink/54">
+              No destinations match the current region, transport, and interest settings.
+            </div>
+          )}
+        </div>
+
+        {hasMoreDestinations ? (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">
             <button
               type="button"
               onClick={() =>
-                setExpandedDestinationSlugs(
-                  new Set(visibleDestinations.map((destination) => destination.slug))
+                setVisibleCount((current) =>
+                  Math.min(current + destinationPageSize, filteredDestinations.length)
                 )
               }
-              className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+              className="rounded-md border border-ink/15 bg-white px-4 py-2 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-ink/[0.03]"
             >
-              Expand all
+              Show more ideas
             </button>
-            <button
-              type="button"
-              onClick={() => setExpandedDestinationSlugs(new Set())}
-              className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
-            >
-              Collapse all
-            </button>
-          </span>
-        </div>
-      ) : null}
-
-      {visibleDestinations.length ? (
-        <>
-          <div className="grid gap-6 md:hidden">
-            {visibleDestinations.map((destination) => renderDestinationCard(destination))}
           </div>
-          <div className="hidden gap-6 md:grid md:grid-cols-2">
-            {desktopColumns.map((column, index) => (
-              <div key={index} className="min-w-0">
-                {column.map((destination) => renderDestinationCard(destination))}
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="rounded-md border border-ink/8 bg-white/60 px-4 py-8 text-center text-sm font-medium text-ink/54">
-          No destinations match the current region, transport, and interest settings.
-        </div>
-      )}
-
-      {hasMoreDestinations ? (
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-sm">
-          <button
-            type="button"
-            onClick={() =>
-              setVisibleCount((current) =>
-                Math.min(current + destinationPageSize, filteredDestinations.length)
-              )
-            }
-            className="rounded-md border border-ink/15 bg-white px-4 py-2 font-semibold text-ink shadow-sm transition hover:border-ink/30 hover:bg-ink/[0.03]"
-          >
-            Show more ideas
-          </button>
-          <span className="text-xs font-semibold text-ink/45">
-            Showing {shownCount} of {filteredDestinations.length}
-          </span>
-        </div>
-      ) : null}
+        ) : null}
+      </section>
     </>
   );
 }

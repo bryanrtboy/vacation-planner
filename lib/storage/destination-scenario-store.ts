@@ -109,7 +109,9 @@ export async function listDestinationScenarios(): Promise<DestinationScenario[]>
   for (const scenario of scenarioRows.results
     .map(parseScenario)
     .filter((scenario): scenario is DestinationScenario => Boolean(scenario))) {
-    scenarioBySlug.set(scenario.destinationSlug, scenario);
+    if (!scenarioBySlug.has(scenario.destinationSlug)) {
+      scenarioBySlug.set(scenario.destinationSlug, scenario);
+    }
   }
 
   return [...scenarioBySlug.values()];

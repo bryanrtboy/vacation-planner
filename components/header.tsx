@@ -16,7 +16,7 @@ export function Header() {
             <Plane size={20} aria-hidden="true" />
           </div>
           <div>
-            <p className="text-base font-semibold">Artist Travel Finder</p>
+            <p className="text-base font-semibold">Trip Ideas</p>
             <p className="text-xs text-ink/56">DEN default · United preferred · no booking</p>
           </div>
         </div>

@@ -41,7 +41,7 @@ export default function LoginPage() {
             <LockKeyhole size={20} aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Artist Travel Finder</h1>
+            <h1 className="text-xl font-semibold">Trip Ideas</h1>
             <p className="text-sm text-ink/62">Private research workspace</p>
           </div>
         </div>

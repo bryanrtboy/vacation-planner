@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Artist Travel Finder",
+  title: "Trip Ideas",
   description: "Curated travel research with manual price snapshots."
 };
 
