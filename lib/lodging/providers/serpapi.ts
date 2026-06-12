@@ -122,15 +122,39 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function removeLowOutliers(candidates: LodgingCandidate[]) {
+function removeOutliers(candidates: LodgingCandidate[]) {
   if (candidates.length < 5) return candidates;
 
   const medianNightly = median(candidates.map((candidate) => candidate.nightly));
   if (typeof medianNightly !== "number") return candidates;
 
-  const floor = medianNightly * 0.6;
-  const filtered = candidates.filter((candidate) => candidate.nightly >= floor);
+  const floor = medianNightly * 0.55;
+  const ceiling = medianNightly * 2.4;
+  const filtered = candidates.filter(
+    (candidate) => candidate.nightly >= floor && candidate.nightly <= ceiling
+  );
   return filtered.length >= 3 ? filtered : candidates;
+}
+
+function percentile(values: number[], percentileValue: number) {
+  const sorted = [...values].sort((first, second) => first - second);
+  if (!sorted.length) return undefined;
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil((sorted.length - 1) * percentileValue))
+  );
+  return sorted[index];
+}
+
+function representativeRange(candidates: LodgingCandidate[]) {
+  const totals = candidates.map((candidate) => candidate.total);
+  const min = percentile(totals, candidates.length >= 8 ? 0.4 : 0.35);
+  const max = percentile(totals, candidates.length >= 8 ? 0.75 : 0.7);
+  if (typeof min !== "number" || typeof max !== "number") return null;
+  return {
+    min: Math.round(Math.min(min, max)),
+    max: Math.round(Math.max(min, max))
+  };
 }
 
 function unavailableResult(
@@ -167,17 +191,12 @@ function normalizeLodging(
   const modeCandidates = rawCandidates.filter((candidate) =>
     candidateMatchesMode(candidate, context.mode)
   );
-  const candidates = removeLowOutliers(modeCandidates).sort(
+  const candidates = removeOutliers(modeCandidates).sort(
     (first, second) => first.total - second.total
   );
-  const totals = candidates.map((candidate) => candidate.total);
+  const range = representativeRange(candidates);
 
-  if (!totals.length) return null;
-
-  const min = Math.round(totals[0]);
-  const displayCeiling = min + Math.max(250, Math.round(min * 0.35));
-  const displayedTotals = totals.filter((total) => total <= displayCeiling);
-  const max = Math.round(displayedTotals.at(-1) ?? totals[0]);
+  if (!range) return null;
 
   return {
     id: `${context.destination.slug}-${context.mode.id}-lodging`,
@@ -185,20 +204,20 @@ function normalizeLodging(
     destinationName: context.destination.name,
     status: "checked",
     message: `Google Hotels ${context.mode.label.toLowerCase()} pricing checked ${
-      totals.length
-    } result${totals.length === 1 ? "" : "s"}; displayed range uses the lowest ${
-      displayedTotals.length
-    }.`,
+      rawCandidates.length
+    } result${rawCandidates.length === 1 ? "" : "s"}; displayed range uses the mid-market ${
+      context.mode.label.toLowerCase()
+    } results after filtering mismatched lodging types and outliers.`,
     provider: "SerpApi Google Hotels",
-    currentRange: { min, max },
+    currentRange: range,
     sampledDates: `${context.tripWindow.departDate}-${context.tripWindow.returnDate}`,
     retrievedAt: new Date().toISOString(),
     sourceDetail:
-      `Lodging checked through Google Hotels using exact SerpApi dates. Filtered ${rawCandidates.length} raw result${
+      `Lodging checked through Google Hotels using exact SerpApi dates without lowest-price sorting. Filtered ${rawCandidates.length} raw result${
         rawCandidates.length === 1 ? "" : "s"
       } to ${modeCandidates.length} ${context.mode.label.toLowerCase()}-compatible result${
         modeCandidates.length === 1 ? "" : "s"
-      }, removed implausibly low outliers, and summarized the lowest plausible total-stay price cluster. Google Travel public links may ignore date parameters, so this checked quote is not linked as an exact booking URL.`,
+      }, removed outliers, and summarized a mid-market representative total-stay range instead of the cheapest listings. Google Travel public links may ignore date parameters, so this checked quote is not linked as an exact booking URL.`,
     sourceKind: "live"
   };
 }
@@ -219,8 +238,7 @@ export async function sampleSerpApiLodging(
     children: "0",
     currency: "USD",
     hl: "en",
-    gl: "us",
-    sort_by: "3"
+    gl: "us"
   });
 
   if (context.mode.vacationRental) {
