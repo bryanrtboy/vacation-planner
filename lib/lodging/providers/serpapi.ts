@@ -130,9 +130,7 @@ function normalizeLodging(
     currentRange: { min, max },
     sampledDates: `${context.tripWindow.departDate}-${context.tripWindow.returnDate}`,
     retrievedAt: new Date().toISOString(),
-    sourceUrl:
-      data.search_metadata?.google_hotels_url ??
-      googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
+    sourceUrl: googleHotelsSearchUrl(context.destination, context.tripWindow, context.mode),
     sourceDetail:
       "Lodging checked through Google Hotels. Total-stay prices are cross-checked against nightly rates when both are returned, then summarized as the lowest plausible price cluster before detailed property review.",
     sourceKind: "live"

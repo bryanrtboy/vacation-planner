@@ -7,6 +7,18 @@ export function googleHotelsSearchUrl(
   tripWindow: TripWindow,
   mode: LodgingMode
 ) {
-  const query = `${lodgingSearchQuery(destination, mode)} ${tripWindow.departDate} ${tripWindow.returnDate}`;
-  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(query)}`;
+  const params = new URLSearchParams({
+    q: lodgingSearchQuery(destination, mode),
+    checkin: tripWindow.departDate,
+    checkout: tripWindow.returnDate,
+    adults: String(mode.adults),
+    children: "0",
+    currency: "USD"
+  });
+
+  if (mode.vacationRental) {
+    params.set("vacation_rentals", "true");
+  }
+
+  return `https://www.google.com/travel/search?${params.toString()}`;
 }

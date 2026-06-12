@@ -1062,7 +1062,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                   return;
                 }
                 setCustomNightsOpen(false);
-                updateGeneratorPreferences({ nights: Number(event.target.value) });
+                updateGeneratorPreferences({
+                  nights: Number(event.target.value),
+                  departDate: undefined,
+                  returnDate: undefined,
+                  travelSeason: "recommended"
+                });
               }}
             >
               {nightOptions.map((nights) => (
@@ -1080,7 +1085,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 max={60}
                 value={preferences.nights}
                 onChange={(event) =>
-                  updateGeneratorPreferences({ nights: Number(event.target.value) })
+                  updateGeneratorPreferences({
+                    nights: Number(event.target.value),
+                    departDate: undefined,
+                    returnDate: undefined,
+                    travelSeason: "recommended"
+                  })
                 }
               />
             ) : null}

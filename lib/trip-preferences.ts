@@ -44,6 +44,22 @@ function addDays(value: string, days: number) {
   return isoDate(date);
 }
 
+function nightsBetweenDates(departDate: string, returnDate: string) {
+  const start = new Date(`${departDate}T00:00:00Z`).getTime();
+  const end = new Date(`${returnDate}T00:00:00Z`).getTime();
+  const nights = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(nights) && nights > 0 ? nights : undefined;
+}
+
+function savedDatesMatchNights(
+  departDate: string | undefined,
+  returnDate: string | undefined,
+  nights: number
+) {
+  if (!departDate || !returnDate) return false;
+  return nightsBetweenDates(departDate, returnDate) === nights;
+}
+
 const monthNumbers: Record<string, number> = {
   january: 1,
   february: 2,
@@ -122,14 +138,21 @@ export function readTripPreferences(): TripPreferences {
       normalizeFlightCount(parsed.flightCount),
       minimumFlightCountForLodging(lodging)
     );
+    const nights = normalizeNights(parsed.nights ?? legacyLength);
+    const savedDatesStillMatch = savedDatesMatchNights(parsed.departDate, parsed.returnDate, nights);
+
     return {
       ...defaultTripPreferences,
       ...parsed,
       departure: (parsed.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
       travelMode: parsed.travelMode === "drive" ? "drive" : "fly",
       flightCount,
-      nights: normalizeNights(parsed.nights ?? legacyLength),
-      travelSeason: parsed.travelSeason ?? defaultTripPreferences.travelSeason
+      nights,
+      travelSeason: savedDatesStillMatch
+        ? parsed.travelSeason ?? defaultTripPreferences.travelSeason
+        : defaultTripPreferences.travelSeason,
+      departDate: savedDatesStillMatch ? parsed.departDate : undefined,
+      returnDate: savedDatesStillMatch ? parsed.returnDate : undefined
     };
   } catch {
     return defaultTripPreferences;
@@ -161,11 +184,16 @@ export function recommendedTripWindow(
   input: number | Pick<TripPreferences, "nights" | "travelSeason" | "departDate" | "returnDate">
 ): TripWindow {
   const nights = typeof input === "number" ? input : normalizeNights(input.nights);
-  if (typeof input !== "number" && input.departDate && input.returnDate) {
+  if (
+    typeof input !== "number" &&
+    savedDatesMatchNights(input.departDate, input.returnDate, nights)
+  ) {
+    const departDate = input.departDate!;
+    const returnDate = input.returnDate!;
     return {
-      departDate: input.departDate,
-      returnDate: input.returnDate,
-      label: `${input.departDate} to ${input.returnDate}`,
+      departDate,
+      returnDate,
+      label: `${departDate} to ${returnDate}`,
       reason: "saved checked dates"
     };
   }
