@@ -69,6 +69,8 @@ const interestOptions = [
   "relaxation · recharging · beautiful settings",
   "bay · ocean views · food",
   "rural escape · slow days",
+  "fly-fishing · scenic walks",
+  "bread-making · culinary classes",
   "custom"
 ];
 
