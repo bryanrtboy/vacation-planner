@@ -1412,15 +1412,15 @@ export function DestinationCard({
                 {destination.region} · {theme.moodLabel}
               </p>
               <h3 className="mt-2 text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
-                <a
-                  href={mapsUrl(destination)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 transition hover:text-white/78"
+                <button
+                  type="button"
+                  onClick={() => onExpandedChange(true)}
+                  className="text-left transition hover:text-white/78 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  aria-expanded={false}
+                  aria-label={`Open ${destination.name} details`}
                 >
                   {destination.name}
-                  <MapPin size={28} className="shrink-0 sm:size-9" aria-hidden="true" />
-                </a>
+                </button>
               </h3>
               <p className="mt-2 text-base font-semibold leading-5 text-white/94">
                 {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
@@ -1479,15 +1479,7 @@ export function DestinationCard({
               {destination.region} · {theme.moodLabel}
             </p>
             <h3 className="mt-2 text-4xl font-semibold leading-tight tracking-normal sm:text-5xl">
-              <a
-                href={mapsUrl(destination)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 transition hover:text-white/78"
-              >
-                {destination.name}
-                <MapPin size={28} className="shrink-0 sm:size-9" aria-hidden="true" />
-              </a>
+              {destination.name}
             </h3>
             <p className="mt-2 text-base font-semibold leading-5 text-white/94">
               {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
@@ -1512,8 +1504,18 @@ export function DestinationCard({
 
       <div>
         <div className={`border-b px-4 py-4 sm:px-5 ${theme.summaryClass}`}>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-start justify-between gap-3">
             <span className="text-sm font-semibold text-ink">{destination.tripType}</span>
+            <a
+              href={mapsUrl(destination)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-ink/10 bg-white/70 text-ink/58 transition hover:border-harbor/35 hover:text-harbor focus:outline-none focus-visible:ring-2 focus-visible:ring-harbor/35"
+              aria-label={`Open ${destination.name} in Google Maps`}
+              title="Open in Google Maps"
+            >
+              <MapPin size={18} aria-hidden="true" />
+            </a>
           </div>
 
           <p className="mt-2 text-sm leading-6 text-ink/74">
