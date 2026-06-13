@@ -14,7 +14,11 @@ import {
   Users
 } from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
-import { lodgingModeFromPreference, lodgingSnapshotKey } from "@/lib/lodging/modes";
+import {
+  lodgingModeFromPreference,
+  lodgingSnapshotKey,
+  type LodgingModeId
+} from "@/lib/lodging/modes";
 import {
   defaultTripPreferences,
   minimumFlightCountForLodging,
@@ -42,7 +46,7 @@ const initialVisibleDestinations = 9;
 const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTravelFilter = "all";
-const allInterestsFilter = "all";
+const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
 const usRegionNames = new Set([
@@ -145,18 +149,6 @@ const interestOptions = [
   "custom"
 ];
 
-const resultInterestOptions = [
-  { value: "art", label: "art" },
-  { value: "food", label: "food" },
-  { value: "gardens", label: "gardens" },
-  { value: "landscape", label: "landscape" },
-  { value: "coast", label: "coast / water" },
-  { value: "architecture", label: "architecture" },
-  { value: "trains", label: "train-friendly" },
-  { value: "quiet bases", label: "quiet bases" },
-  { value: "rural", label: "rural" }
-];
-
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
 type SnapshotResponse = {
@@ -182,42 +174,6 @@ type CheckedScenario = Partial<TripPreferences> & {
   updatedAt?: string;
 };
 
-const interestSynonyms: Record<string, string[]> = {
-  art: ["art", "gallery", "galleries", "museum", "museums", "design", "ceramics", "mosaics"],
-  craft: ["craft", "ceramics", "tile", "tiles", "print", "workshops", "studio"],
-  food: ["food", "market", "markets", "dining", "restaurant", "wine"],
-  gardens: ["garden", "gardens", "botanical", "green"],
-  coast: ["coast", "coastal", "ocean", "sea", "bay", "waterfront", "ferry", "ferries"],
-  trains: ["train", "trains", "rail", "no car needed", "train-first"],
-  architecture: ["architecture", "porticoes", "historic", "university", "design"],
-  landscape: ["landscape", "views", "view", "lake", "mountain", "coast", "coastal", "desert"],
-  "quiet bases": ["quiet", "base", "bases", "slow", "low-key", "apartment", "cottage"],
-  relaxation: ["quiet", "slow", "retreat", "escape", "coast", "coastal", "garden", "landscape"],
-  recharging: ["quiet", "slow", "retreat", "escape", "low-key", "cottage", "landscape"],
-  "beautiful settings": ["landscape", "views", "view", "coast", "coastal", "bay", "ocean", "lake", "garden"],
-  bay: ["bay", "waterfront", "ferry", "ferries", "coast", "coastal"],
-  ocean: ["ocean", "sea", "coast", "coastal", "waterfront"],
-  views: ["views", "view", "landscape", "coast", "coastal", "lake", "mountain"],
-  rural: ["rural", "cottage", "quiet", "escape", "landscape", "slow"],
-  escape: ["escape", "retreat", "quiet", "slow", "cottage", "landscape"]
-};
-
-const scoredInterests: Partial<Record<string, keyof Destination["fit"]>> = {
-  art: "art",
-  food: "food",
-  gardens: "gardens",
-  landscape: "landscape"
-};
-
-function interestTerms(preferences: TripPreferences["interests"]) {
-  if (!preferences.trim()) return [];
-  return preferences
-    .toLowerCase()
-    .split(/[·,;/]+|\band\b/)
-    .map((term) => term.trim())
-    .filter(Boolean);
-}
-
 function destinationInterestText(destination: Destination) {
   return [
     destination.name,
@@ -241,21 +197,25 @@ function destinationInterestText(destination: Destination) {
     .toLowerCase();
 }
 
-function destinationMatchesInterests(destination: Destination, preferences: TripPreferences["interests"]) {
-  if (preferences === allInterestsFilter || preferences === "all interests") return true;
+function searchTokens(query: string) {
+  return query
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
 
-  const terms = interestTerms(preferences);
-  if (!terms.length) return true;
+function destinationMatchesSearch(destination: Destination, query: string) {
+  const tokens = searchTokens(query);
+  if (!tokens.length) return true;
 
-  const text = destinationInterestText(destination);
+  const text = destinationInterestText(destination)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-  return terms.some((term) => {
-    const scoredInterest = scoredInterests[term];
-    if (scoredInterest && destination.fit[scoredInterest] >= 7) return true;
-
-    const termsToMatch = interestSynonyms[term] ?? [term];
-    return termsToMatch.some((candidate) => text.includes(candidate));
-  });
+  return tokens.every((token) => text.includes(token));
 }
 
 function checkedNightsBetween(departDate: string | undefined, returnDate: string | undefined) {
@@ -271,6 +231,51 @@ function lodgingPreferenceFromSnapshotMode(mode: string | undefined) {
   if (mode === "group-house") return "group house rentals";
   if (mode === "apartment") return "apartments for 2";
   return undefined;
+}
+
+function lodgingModeIdFromSaved(search: SavedSearchSummary): LodgingModeId | undefined {
+  const lodging = search.lodging?.toLowerCase();
+  if (!lodging) return undefined;
+  if (lodging.includes("hotel")) return "hotel";
+  if (lodging.includes("group") || lodging.includes("house")) return "group-house";
+  if (lodging.includes("apartment")) return "apartment";
+  return undefined;
+}
+
+function savedSearchIsChecked(search: SavedSearchSummary) {
+  return search.result?.status === "checked";
+}
+
+function savedSearchUpdatedTime(search: SavedSearchSummary) {
+  const time = new Date(search.updatedAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function searchMatchesStayFilter(search: SavedSearchSummary, stayFilter: string) {
+  return (
+    stayFilter === allStayFilter ||
+    (search.kind === "lodging" && lodgingModeIdFromSaved(search) === stayFilter)
+  );
+}
+
+function searchMatchesTravelFilter(search: SavedSearchSummary, travelFilter: string) {
+  return travelFilter === allTravelFilter || search.travelMode === travelFilter;
+}
+
+function savedSearchKindMatchLabel(search: SavedSearchSummary, stayFilter: string, travelFilter: string) {
+  const parts: string[] = [];
+
+  if (stayFilter !== allStayFilter && search.kind === "lodging") {
+    const mode = lodgingModeIdFromSaved(search);
+    if (mode === "hotel") parts.push("Hotel match");
+    if (mode === "apartment") parts.push("Apartment match");
+    if (mode === "group-house") parts.push("Group house match");
+  }
+
+  if (travelFilter === "drive") parts.push("Drive match");
+  if (travelFilter === "fly") parts.push("Fly match");
+
+  return parts.join(" · ");
 }
 
 function lodgingScenarioFromLocalKey(key: string, result: WatchRefreshResult): CheckedScenario | undefined {
@@ -437,7 +442,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [customNightsOpen, setCustomNightsOpen] = useState(false);
   const [customInterestsOpen, setCustomInterestsOpen] = useState(false);
   const [regionFilter, setRegionFilter] = useState(allRegionsFilter);
-  const [libraryInterestFilter, setLibraryInterestFilter] = useState(allInterestsFilter);
+  const [librarySearchQuery, setLibrarySearchQuery] = useState("");
+  const [stayFilter, setStayFilter] = useState<string>(allStayFilter);
   const [resultFiltersOpen, setResultFiltersOpen] = useState(false);
   const [travelFilter, setTravelFilter] = useState(allTravelFilter);
   const [scoreSort, setScoreSort] = useState<keyof Destination["fit"] | typeof noScoreSort>(
@@ -476,32 +482,90 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     },
     [destinations]
   );
-  const libraryInterestOptions = useMemo(
-    () =>
-      resultInterestOptions
-        .map((option) => ({
-          ...option,
-          count: destinations.filter((destination) =>
-            destinationMatchesInterests(destination, option.value)
-          ).length
-        }))
-        .filter((option) => option.count > 0),
-    [destinations]
-  );
+  const checkedSearchesBySlug = useMemo(() => {
+    const bySlug = new Map<string, SavedSearchSummary[]>();
+    const sortedSearches = [...savedSearches]
+      .filter(savedSearchIsChecked)
+      .sort((first, second) => savedSearchUpdatedTime(second) - savedSearchUpdatedTime(first));
+
+    for (const search of sortedSearches) {
+      const current = bySlug.get(search.destinationSlug) ?? [];
+      current.push(search);
+      bySlug.set(search.destinationSlug, current);
+    }
+
+    return bySlug;
+  }, [savedSearches]);
+  const stayFilterOptions = useMemo(() => {
+    const labels: Record<LodgingModeId, string> = {
+      hotel: "hotels",
+      apartment: "apartments",
+      "group-house": "group houses"
+    };
+
+    return (["hotel", "apartment", "group-house"] as LodgingModeId[])
+      .map((mode) => {
+        const destinationSlugs = new Set(
+          savedSearches
+            .filter(
+              (search) =>
+                savedSearchIsChecked(search) &&
+                search.kind === "lodging" &&
+                lodgingModeIdFromSaved(search) === mode
+            )
+            .map((search) => search.destinationSlug)
+        );
+
+        return {
+          value: mode,
+          label: labels[mode],
+          count: destinationSlugs.size
+        };
+      })
+      .filter((option) => option.count > 0);
+  }, [savedSearches]);
   const destinationHasDriveOption = useCallback(
     (destination: Destination) =>
       scenarioOverrides[destination.slug]?.travelMode === "drive" ||
-      savedSearches.some(
-        (search) => search.destinationSlug === destination.slug && search.travelMode === "drive"
+      (checkedSearchesBySlug.get(destination.slug) ?? []).some(
+        (search) => search.travelMode === "drive"
       ),
-    [savedSearches, scenarioOverrides]
+    [checkedSearchesBySlug, scenarioOverrides]
   );
   const destinationHasFlyOption = useCallback(
     (destination: Destination) =>
-      savedSearches.some(
-        (search) => search.destinationSlug === destination.slug && search.travelMode === "fly"
+      (checkedSearchesBySlug.get(destination.slug) ?? []).some(
+        (search) => search.travelMode === "fly"
       ) || !destinationHasDriveOption(destination),
-    [destinationHasDriveOption, savedSearches]
+    [checkedSearchesBySlug, destinationHasDriveOption]
+  );
+  const matchingLensSearchForDestination = useCallback(
+    (destination: Destination) => {
+      if (stayFilter === allStayFilter && travelFilter === allTravelFilter) return undefined;
+
+      const searches = checkedSearchesBySlug.get(destination.slug) ?? [];
+      const matches = searches.filter(
+        (search) =>
+          searchMatchesStayFilter(search, stayFilter) &&
+          searchMatchesTravelFilter(search, travelFilter)
+      );
+
+      if (stayFilter !== allStayFilter) {
+        return matches.find((search) => search.kind === "lodging");
+      }
+
+      return (
+        matches.find((search) => search.kind === "lodging") ??
+        matches.find((search) => search.kind === "airfare")
+      );
+    },
+    [checkedSearchesBySlug, stayFilter, travelFilter]
+  );
+  const destinationMatchesStayFilter = useCallback(
+    (destination: Destination) =>
+      stayFilter === allStayFilter ||
+      Boolean(matchingLensSearchForDestination(destination)),
+    [matchingLensSearchForDestination, stayFilter]
   );
   const filteredDestinations = useMemo(() => {
     if (focusedSavedSearch) {
@@ -512,15 +576,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
     const filtered = destinations.filter((destination) => {
       const regionMatches = destinationMatchesRegion(destination, regionFilter);
+      const searchMatches = destinationMatchesSearch(destination, librarySearchQuery);
+      const stayMatches = destinationMatchesStayFilter(destination);
       const travelMatches =
         travelFilter === allTravelFilter ||
         (travelFilter === "drive"
           ? destinationHasDriveOption(destination)
           : destinationHasFlyOption(destination));
-      const interestMatches =
-        libraryInterestFilter === allInterestsFilter ||
-        destinationMatchesInterests(destination, libraryInterestFilter);
-      return regionMatches && travelMatches && interestMatches;
+      return regionMatches && searchMatches && stayMatches && travelMatches;
     });
 
     if (scoreSort === noScoreSort) return filtered;
@@ -534,7 +597,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     focusedSavedSearch,
     destinationHasDriveOption,
     destinationHasFlyOption,
-    libraryInterestFilter,
+    destinationMatchesStayFilter,
+    librarySearchQuery,
     regionFilter,
     scoreSort,
     travelFilter
@@ -654,7 +718,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const hasMoreDestinations = visibleCount < filteredDestinations.length;
   const filtersActive =
     regionFilter !== allRegionsFilter ||
-    libraryInterestFilter !== allInterestsFilter ||
+    librarySearchQuery.trim().length > 0 ||
+    stayFilter !== allStayFilter ||
     travelFilter !== allTravelFilter ||
     scoreSort !== noScoreSort ||
     Boolean(focusedSavedSearch);
@@ -1113,6 +1178,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
       setFocusedSavedSearch(savedSearch);
       setRegionFilter(allRegionsFilter);
+      setLibrarySearchQuery("");
+      setStayFilter(allStayFilter);
       setTravelFilter(allTravelFilter);
       setScoreSort(noScoreSort);
       setVisibleCount(initialVisibleDestinations);
@@ -1207,7 +1274,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
 
   function renderDestinationCard(destination: Destination) {
-    const activePreferences = scenarioPreferences(destination.slug);
+    const lensSearch = matchingLensSearchForDestination(destination);
+    const basePreferences = scenarioPreferences(destination.slug);
+    const activePreferences = lensSearch
+      ? preferencesFromSavedSearch(lensSearch, basePreferences)
+      : basePreferences;
     const tripWindow = tripWindowFor(destination, activePreferences);
     const lodgingMode = lodgingModeFromPreference(activePreferences.lodging);
     const fareKey = snapshotKey(destination.slug, activePreferences, tripWindow);
@@ -1225,6 +1296,21 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const hasCheckedFallback =
       Boolean(savedCheckedScenarios.get(destination.slug)) ||
       Boolean(localCheckedScenarios.get(destination.slug));
+    const checkedSearchCount = checkedSearchesBySlug.get(destination.slug)?.length ?? 0;
+    const priceActivityLevel = Math.min(
+      3,
+      checkedSearchCount +
+        (checkedSearchesBySlug
+          .get(destination.slug)
+          ?.some(
+            (search) => Date.now() - savedSearchUpdatedTime(search) < 1000 * 60 * 60 * 24 * 14
+          )
+          ? 1
+          : 0)
+    );
+    const comparisonLensLabel = lensSearch
+      ? savedSearchKindMatchLabel(lensSearch, stayFilter, travelFilter)
+      : undefined;
 
     return (
       <DestinationCard
@@ -1248,6 +1334,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         preferences={activePreferences}
         tripWindow={tripWindow}
         savedSearches={savedSearches}
+        comparisonLensLabel={comparisonLensLabel}
+        priceActivityLevel={priceActivityLevel}
         isExpanded={isExpanded}
         onExpandedChange={(expanded) => {
           if (!expanded && !hasCheckedScenario && hasCheckedFallback) {
@@ -1678,15 +1766,25 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               ))}
             </select>
           </label>
-          <label className="grid min-w-52 gap-1">
-            <span className="font-semibold uppercase tracking-wide text-ink/38">Interests</span>
+          <label className="grid min-w-64 flex-1 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Search ideas</span>
+            <input
+              type="search"
+              value={librarySearchQuery}
+              onChange={(event) => setLibrarySearchQuery(event.target.value)}
+              placeholder="food, fishing, gardens, quiet..."
+              className={libraryFieldClass}
+            />
+          </label>
+          <label className="grid min-w-40 gap-1">
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Stay</span>
             <select
-              value={libraryInterestFilter}
-              onChange={(event) => setLibraryInterestFilter(event.target.value)}
+              value={stayFilter}
+              onChange={(event) => setStayFilter(event.target.value)}
               className={libraryFieldClass}
             >
-              <option value={allInterestsFilter}>all interests</option>
-              {libraryInterestOptions.map((option) => (
+              <option value={allStayFilter}>all stays</option>
+              {stayFilterOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label} ({option.count})
                 </option>
@@ -1727,7 +1825,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               onClick={() => {
                 setFocusedSavedSearch(null);
                 setRegionFilter(allRegionsFilter);
-                setLibraryInterestFilter(allInterestsFilter);
+                setLibrarySearchQuery("");
+                setStayFilter(allStayFilter);
                 setTravelFilter(allTravelFilter);
                 setScoreSort(noScoreSort);
               }}

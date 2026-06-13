@@ -1304,6 +1304,8 @@ export function DestinationCard({
   preferences,
   tripWindow,
   savedSearches = [],
+  comparisonLensLabel,
+  priceActivityLevel = 0,
   isExpanded,
   onExpandedChange,
   photoUrl,
@@ -1322,6 +1324,8 @@ export function DestinationCard({
   preferences: TripPreferences;
   tripWindow: TripWindow;
   savedSearches?: SavedSearchSummary[];
+  comparisonLensLabel?: string;
+  priceActivityLevel?: number;
   isExpanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   photoUrl?: string;
@@ -1330,6 +1334,12 @@ export function DestinationCard({
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
   const activePhotoUrl = photoUrl ?? theme.photoUrl;
+  const activityShadow =
+    priceActivityLevel >= 3
+      ? "shadow-[0_18px_44px_rgb(58_111_120_/_0.22)]"
+      : priceActivityLevel > 0
+        ? "shadow-[0_14px_34px_rgb(31_42_44_/_0.14)]"
+        : "";
   const activeLodgingSnapshot = lodgingSnapshotMatchesTripWindow(lodgingSnapshot, tripWindow)
     ? lodgingSnapshot
     : undefined;
@@ -1366,7 +1376,7 @@ export function DestinationCard({
 
   if (!isExpanded) {
     return (
-      <article className={`mb-6 inline-block w-full break-inside-avoid overflow-hidden rounded-md border-2 bg-white ${theme.cardClass}`}>
+      <article className={`mb-6 inline-block w-full break-inside-avoid overflow-hidden rounded-md border-2 bg-white ${activityShadow} ${theme.cardClass}`}>
         <div
           className={`relative min-h-[246px] w-full overflow-hidden text-left text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-harbor/45 ${theme.bannerClass}`}
         >
@@ -1415,6 +1425,11 @@ export function DestinationCard({
               <p className="mt-2 text-base font-semibold leading-5 text-white/94">
                 {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
               </p>
+              {comparisonLensLabel ? (
+                <p className="mt-2 inline-flex rounded-md border border-white/20 bg-white/16 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/88 backdrop-blur-sm">
+                  {comparisonLensLabel}
+                </p>
+              ) : null}
             </div>
             <button
               type="button"
@@ -1432,7 +1447,7 @@ export function DestinationCard({
   }
 
   return (
-    <article className={`mb-6 inline-block w-full break-inside-avoid overflow-visible rounded-md border-2 bg-white ${theme.cardClass}`}>
+    <article className={`mb-6 inline-block w-full break-inside-avoid overflow-visible rounded-md border-2 bg-white ${activityShadow} ${theme.cardClass}`}>
       <div
         className={`relative min-h-[246px] overflow-hidden text-white ${theme.bannerClass}`}
       >
@@ -1477,6 +1492,11 @@ export function DestinationCard({
             <p className="mt-2 text-base font-semibold leading-5 text-white/94">
               {compactTripCostSummary(costSummary, preferences.nights, lodgingMode, preferences.travelMode)}
             </p>
+            {comparisonLensLabel ? (
+              <p className="mt-2 inline-flex rounded-md border border-white/20 bg-white/16 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/88 backdrop-blur-sm">
+                {comparisonLensLabel}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
