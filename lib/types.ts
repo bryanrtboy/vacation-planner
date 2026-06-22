@@ -232,6 +232,7 @@ export type ArtWatchTerm = {
   id: string;
   label: string;
   active: boolean;
+  lastSearchedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

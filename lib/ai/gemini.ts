@@ -306,13 +306,39 @@ function canonicalArtSearchTerm(term: string) {
   return artSearchCanonicalTerms[normalized] ?? term;
 }
 
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
 function artShowPrompt(artists: string[]) {
   const searchTerms = artists.map((artist) => canonicalArtSearchTerm(artist));
+  const today = new Date();
+  const recentStart = addDays(today, -90);
+  const horizonEnd = addMonths(today, 24);
 
   return `Find up to 5 travel-worthy upcoming, currently open, recently opened, or formally announced museum or major gallery exhibitions for this watchlist:
 ${searchTerms.map((artist) => `- ${artist}`).join("\n")}
 
 Use Google Search. Return only JSON with a top-level "leads" array.
+
+Search window:
+- Today is ${isoDate(today)}.
+- Include recently opened exhibitions that opened on or after ${isoDate(recentStart)}.
+- Include currently open exhibitions.
+- Include announced or planned exhibitions with dates, expected seasons, or dates to be announced through ${isoDate(horizonEnd)}.
+- Prefer future and currently open shows over shows that have already closed.
 
 Keep only high-confidence exhibition leads:
 - Must have an official museum/gallery/foundation source or reputable arts publication source.

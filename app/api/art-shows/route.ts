@@ -9,6 +9,7 @@ import {
   getLatestArtShowSearchRun,
   listArtShowLeads,
   listArtWatchTerms,
+  markActiveArtWatchTermsSearched,
   replaceArtWatchTerms,
   updateArtShowSearchRun,
   updateArtShowLeadStatus,
@@ -83,6 +84,7 @@ async function completeArtShowSearchRun(
   try {
     const result = await findArtShowsWithGemini(artists);
     if (!result.leads.length) {
+      await markActiveArtWatchTermsSearched();
       await updateArtShowSearchRun(runId, {
         status: "complete",
         resultCount: 0,
@@ -92,6 +94,7 @@ async function completeArtShowSearchRun(
     }
 
     const saved = await writeArtShowLeads(result.leads);
+    if (saved) await markActiveArtWatchTermsSearched();
     await updateArtShowSearchRun(runId, {
       status: saved ? "complete" : "error",
       resultCount: saved ? result.leads.length : 0,

@@ -11,6 +11,7 @@ type ArtWatchTermRow = {
   id: string;
   label: string;
   active: number;
+  last_searched_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -91,6 +92,7 @@ function rowToWatchTerm(row: ArtWatchTermRow): ArtWatchTerm {
     id: row.id,
     label: row.label,
     active: Boolean(row.active),
+    lastSearchedAt: row.last_searched_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -329,6 +331,23 @@ export async function updateArtShowLeadStatus(id: string, status: ArtShowLeadSta
        WHERE id = ?3`
     )
     .bind(status, timestamp, id)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function markActiveArtWatchTermsSearched(timestamp = nowIso()) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const result = await db
+    .prepare(
+      `UPDATE art_watch_terms
+       SET last_searched_at = ?1, updated_at = ?1
+       WHERE active = 1`
+    )
+    .bind(timestamp)
     .run()
     .catch(() => null);
 

@@ -514,6 +514,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
   const artShowSearchRunning = artShowSearchRun?.status === "running";
+  const unsearchedArtWatchTerms = artWatchTerms.filter(
+    (term) => term.active && !term.lastSearchedAt
+  );
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -1829,6 +1832,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-ink/52">
                 Searches the shared D1 watchlist for sourced, travel-worthy museum and major gallery shows.
               </p>
+              <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
+                Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -1891,6 +1897,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 ))}
             </div>
           )}
+
+          {!artWatchEditing && unsearchedArtWatchTerms.length ? (
+            <p className="mt-2 text-xs font-medium text-ink/48">
+              {unsearchedArtWatchTerms.length} active watchlist{" "}
+              {unsearchedArtWatchTerms.length === 1 ? "name has" : "names have"} not been included
+              in a completed show search yet.
+            </p>
+          ) : null}
 
           {artShowStatusMessage ? (
             <p className="mt-3 text-xs font-medium text-ink/54">{artShowStatusMessage}</p>
