@@ -329,7 +329,28 @@ export async function listArtShowLeads(
 
   const rows = await db
     .prepare(
-      `SELECT * FROM art_show_leads
+      `SELECT
+         id,
+         status,
+         artist,
+         title,
+         venue,
+         city,
+         country,
+         start_date,
+         end_date,
+         date_text,
+         source_url,
+         source_name,
+         summary,
+         travel_reason,
+         score,
+         NULL AS raw_response_json,
+         model,
+         created_at,
+         updated_at,
+         reviewed_at
+       FROM art_show_leads
        WHERE status = ?1
        ORDER BY score DESC, updated_at DESC
        LIMIT 30`
