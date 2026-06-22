@@ -434,6 +434,22 @@ function artShowProgressMessage(run?: ArtShowSearchRun, progress?: ArtShowSearch
     .join(" · ");
 }
 
+function artShowPausedMessage(run?: ArtShowSearchRun, progress?: ArtShowSearchProgress) {
+  if (!run || run.status !== "running") return artShowRunMessage(run);
+  if (!progress?.totalBatches) return "Art show sweep is paused. Click Resume search to continue.";
+
+  return [
+    "Art show sweep is paused.",
+    `${progress.remainingTerms} names left`,
+    progress.errorBatches
+      ? `${progress.errorBatches} batch${progress.errorBatches === 1 ? "" : "es"} can retry later`
+      : undefined,
+    "Click Resume search to continue."
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -515,6 +531,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [artWatchEditing, setArtWatchEditing] = useState(false);
   const [artWatchListExpanded, setArtWatchListExpanded] = useState(false);
   const [searchingArtShows, setSearchingArtShows] = useState(false);
+  const [processingArtShowBatches, setProcessingArtShowBatches] = useState(false);
   const [savingArtWatch, setSavingArtWatch] = useState(false);
   const [reviewingArtShowId, setReviewingArtShowId] = useState<string | null>(null);
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
@@ -532,7 +549,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
-  const artShowSearchRunning = artShowSearchRun?.status === "running";
+  const artShowRunActive = artShowSearchRun?.status === "running";
+  const artShowSearchRunning = artShowRunActive && processingArtShowBatches;
   const displayedArtShowStatusMessage = artShowStatusMessage;
   const activeArtWatchTerms = artWatchTerms.filter((term) => term.active);
   const visibleArtWatchTerms = artWatchListExpanded
@@ -924,7 +942,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         setArtShowSearchProgress(data.searchProgress);
         if (data.searchRun?.status === "running") setArtShowWatchOpen(true);
         setArtShowStatusMessage(
-          data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
+          data.message ??
+            (data.searchRun?.status === "running"
+              ? artShowPausedMessage(data.searchRun, data.searchProgress)
+              : artShowProgressMessage(data.searchRun, data.searchProgress))
         );
       } catch {
         // Art show watch is optional; destination browsing still works without it.
@@ -965,6 +986,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
           );
           shouldContinue = data.searchRun?.status === "running";
+          if (!shouldContinue) setProcessingArtShowBatches(false);
         }
       } catch {
         // Keep the current running state visible; the next attempt can recover.
@@ -1424,6 +1446,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [artWatchText]);
 
   const findArtShows = useCallback(async () => {
+    if (artShowRunActive) {
+      setProcessingArtShowBatches(true);
+      setArtShowStatusMessage(
+        artShowProgressMessage(artShowSearchRun, artShowSearchProgress) ||
+          "Resuming art show search..."
+      );
+      return;
+    }
+
     setSearchingArtShows(true);
     setArtShowStatusMessage("Searching museum and major gallery show leads...");
 
@@ -1441,12 +1472,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           artShowProgressMessage(data.searchRun, data.searchProgress) ||
           (response.ok ? "Art show search started." : "Unable to search shows.")
       );
+      setProcessingArtShowBatches(data.searchRun?.status === "running");
     } catch {
       setArtShowStatusMessage("Unable to search art shows right now.");
     } finally {
       setSearchingArtShows(false);
     }
-  }, []);
+  }, [artShowRunActive, artShowSearchProgress, artShowSearchRun]);
 
   const reviewArtShowLead = useCallback(async (id: string, status: "saved" | "hidden") => {
     setReviewingArtShowId(id);
@@ -1909,7 +1941,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                   className={searchingArtShows || artShowSearchRunning ? "animate-spin" : ""}
                   aria-hidden="true"
                 />
-                {searchingArtShows || artShowSearchRunning ? "Searching..." : "Find shows"}
+                {searchingArtShows || artShowSearchRunning
+                  ? "Searching..."
+                  : artShowRunActive
+                    ? "Resume search"
+                    : "Find shows"}
               </button>
             </div>
           </div>
