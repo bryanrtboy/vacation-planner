@@ -15,6 +15,8 @@ type ArtWatchTermRow = {
   label: string;
   active: number;
   last_searched_at: string | null;
+  last_failed_at: string | null;
+  search_failure_count: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -92,7 +94,7 @@ const seedArtists = [
   "Raphael"
 ];
 
-export const artShowBatchSize = 3;
+export const artShowBatchSize = 1;
 
 function slugify(value: string) {
   return value
@@ -110,6 +112,8 @@ function rowToWatchTerm(row: ArtWatchTermRow): ArtWatchTerm {
     label: row.label,
     active: Boolean(row.active),
     lastSearchedAt: row.last_searched_at ?? undefined,
+    lastFailedAt: row.last_failed_at ?? undefined,
+    searchFailureCount: row.search_failure_count ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -209,6 +213,19 @@ export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageSta
       ready: false,
       message:
         "Art show watch storage is missing its tables. Run npm run d1:migrate:remote before searching shows."
+    };
+  }
+
+  const termColumns = await db
+    .prepare("PRAGMA table_info(art_watch_terms)")
+    .all<{ name: string }>()
+    .catch(() => null);
+  const termColumnNames = new Set(termColumns?.results.map((row) => row.name) ?? []);
+  if (!termColumnNames.has("last_failed_at") || !termColumnNames.has("search_failure_count")) {
+    return {
+      ready: false,
+      message:
+        "Art show watch storage is missing failure cooldown columns. Run npm run d1:migrate:remote before searching shows."
     };
   }
 
@@ -414,7 +431,10 @@ export async function markActiveArtWatchTermsSearched(timestamp = nowIso()) {
   const result = await db
     .prepare(
       `UPDATE art_watch_terms
-       SET last_searched_at = ?1, updated_at = ?1
+       SET last_searched_at = ?1,
+           last_failed_at = NULL,
+           search_failure_count = 0,
+           updated_at = ?1
        WHERE active = 1`
     )
     .bind(timestamp)
@@ -433,7 +453,31 @@ export async function markArtWatchTermsSearched(labels: string[], timestamp = no
   const result = await db
     .prepare(
       `UPDATE art_watch_terms
-       SET last_searched_at = ?1, updated_at = ?1
+       SET last_searched_at = ?1,
+           last_failed_at = NULL,
+           search_failure_count = 0,
+           updated_at = ?1
+       WHERE id IN (${placeholders})`
+    )
+    .bind(timestamp, ...ids)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function markArtWatchTermsSearchFailed(labels: string[], timestamp = nowIso()) {
+  const db = await getD1Database();
+  if (!db || !labels.length) return false;
+
+  const ids = labels.map((label) => slugify(label));
+  const placeholders = ids.map((_, index) => `?${index + 2}`).join(", ");
+  const result = await db
+    .prepare(
+      `UPDATE art_watch_terms
+       SET last_failed_at = ?1,
+           search_failure_count = COALESCE(search_failure_count, 0) + 1,
+           updated_at = ?1
        WHERE id IN (${placeholders})`
     )
     .bind(timestamp, ...ids)
@@ -565,6 +609,17 @@ export async function expireStaleArtShowSearchBatches(cutoffIso: string) {
   const db = await getD1Database();
   if (!db) return false;
 
+  const staleRows = await db
+    .prepare(
+      `SELECT * FROM art_show_search_batches
+       WHERE status = 'running'
+         AND started_at < ?1`
+    )
+    .bind(cutoffIso)
+    .all<ArtShowSearchBatchRow>()
+    .catch(() => ({ results: [] }));
+  const staleLabels = staleRows.results.flatMap((row) => rowToSearchBatch(row).termLabels);
+
   const timestamp = nowIso();
   const result = await db
     .prepare(
@@ -578,6 +633,8 @@ export async function expireStaleArtShowSearchBatches(cutoffIso: string) {
     .bind(timestamp, cutoffIso)
     .run()
     .catch(() => null);
+
+  if (result && staleLabels.length) await markArtWatchTermsSearchFailed(staleLabels, timestamp);
 
   return Boolean(result);
 }
@@ -615,6 +672,50 @@ export async function listArtShowSearchBatches(runId: string): Promise<ArtShowSe
   return rows.results.map(rowToSearchBatch);
 }
 
+export async function normalizePendingArtShowSearchBatches(
+  runId: string,
+  batchSize = artShowBatchSize
+) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const pendingBatches = (await listArtShowSearchBatches(runId)).filter(
+    (batch) => batch.status === "pending" && batch.termLabels.length > batchSize
+  );
+  if (!pendingBatches.length) return true;
+
+  const statements = pendingBatches.flatMap((batch) => {
+    const slices: string[][] = [];
+    for (let index = 0; index < batch.termLabels.length; index += batchSize) {
+      slices.push(batch.termLabels.slice(index, index + batchSize));
+    }
+
+    return [
+      db
+        .prepare(
+          `UPDATE art_show_search_batches
+           SET term_labels_json = ?1
+           WHERE id = ?2
+             AND status = 'pending'`
+        )
+        .bind(JSON.stringify(slices[0] ?? []), batch.id),
+      ...slices.slice(1).map((labels, index) =>
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO art_show_search_batches (
+              id, run_id, status, term_labels_json, result_count, message,
+              attempt_count, started_at, completed_at
+            ) VALUES (?1, ?2, 'pending', ?3, 0, NULL, 0, NULL, NULL)`
+          )
+          .bind(`${batch.id}-split-${String(index + 2).padStart(2, "0")}`, runId, JSON.stringify(labels))
+      )
+    ];
+  });
+
+  const result = await db.batch(statements).catch(() => null);
+  return Boolean(result);
+}
+
 export function progressFromBatches(batches: ArtShowSearchBatch[]): ArtShowSearchProgress {
   const currentBatch =
     batches.find((batch) => batch.status === "running") ??
@@ -645,6 +746,8 @@ export async function claimNextArtShowSearchBatch(
 ): Promise<ArtShowSearchBatch | null> {
   const db = await getD1Database();
   if (!db) return null;
+
+  await normalizePendingArtShowSearchBatches(runId);
 
   const row = await db
     .prepare(

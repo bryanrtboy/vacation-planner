@@ -57,7 +57,6 @@ const allTravelFilter = "all";
 const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
-const artShowPollIntervalMs = 1000 * 10;
 const usRegionNames = new Set([
   "alabama",
   "alaska",
@@ -558,7 +557,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     : activeArtWatchTerms.slice(0, 18);
   const hiddenArtWatchTermCount = Math.max(activeArtWatchTerms.length - visibleArtWatchTerms.length, 0);
   const unsearchedArtWatchTerms = artWatchTerms.filter(
-    (term) => term.active && !term.lastSearchedAt
+    (term) => term.active && !term.lastSearchedAt && !term.lastFailedAt
+  );
+  const failedArtWatchTerms = artWatchTerms.filter(
+    (term) => term.active && term.lastFailedAt && !term.lastSearchedAt
   );
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
@@ -963,10 +965,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     if (!artShowSearchRunning) return;
 
     let cancelled = false;
-    let timeoutId: number | undefined;
 
-    async function processBatchAndScheduleNext() {
-      let shouldContinue = true;
+    async function processOneBatch() {
       try {
         const response = await fetch("/api/art-shows", {
           method: "PATCH",
@@ -982,26 +982,23 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           setArtShowLeads(data.leads);
           setArtShowSearchRun(data.searchRun);
           setArtShowSearchProgress(data.searchProgress);
-          setArtShowStatusMessage(
-            data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
-          );
-          shouldContinue = data.searchRun?.status === "running";
-          if (!shouldContinue) setProcessingArtShowBatches(false);
+          const pausedMessage =
+            data.searchRun?.status === "running"
+              ? artShowPausedMessage(data.searchRun, data.searchProgress)
+              : artShowProgressMessage(data.searchRun, data.searchProgress);
+          setArtShowStatusMessage([data.message, pausedMessage].filter(Boolean).join(" "));
         }
       } catch {
-        // Keep the current running state visible; the next attempt can recover.
+        setArtShowStatusMessage("Unable to process this art show batch right now.");
       } finally {
-        if (!cancelled && shouldContinue) {
-          timeoutId = window.setTimeout(processBatchAndScheduleNext, artShowPollIntervalMs);
-        }
+        if (!cancelled) setProcessingArtShowBatches(false);
       }
     }
 
-    void processBatchAndScheduleNext();
+    void processOneBatch();
 
     return () => {
       cancelled = true;
-      if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [artShowSearchRunning]);
 
@@ -1921,6 +1918,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
                 Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for 30 days.
               </p>
+              <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
+                Cost guard: one watchlist name per Gemini request. Timed-out names pause for 30 days.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -1985,7 +1985,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                     }`}
                   >
                     {term.label}
-                    {!term.lastSearchedAt ? (
+                    {term.lastFailedAt && !term.lastSearchedAt ? (
+                      <span className="ml-1 font-bold uppercase tracking-wide">cooldown</span>
+                    ) : !term.lastSearchedAt ? (
                       <span className="ml-1 font-bold uppercase tracking-wide">new</span>
                     ) : null}
                   </span>
@@ -2014,15 +2016,25 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 {unsearchedArtWatchTerms.length
                   ? ` · ${unsearchedArtWatchTerms.length} not searched yet`
                   : ""}
+                {failedArtWatchTerms.length
+                  ? ` · ${failedArtWatchTerms.length} in timeout cooldown`
+                  : ""}
               </p>
             </div>
           )}
 
-          {!artWatchEditing && unsearchedArtWatchTerms.length ? (
+          {!artWatchEditing && (unsearchedArtWatchTerms.length || failedArtWatchTerms.length) ? (
             <p className="mt-2 text-xs font-medium text-ink/48">
-              {unsearchedArtWatchTerms.length} active watchlist{" "}
-              {unsearchedArtWatchTerms.length === 1 ? "name has" : "names have"} not been included
-              in a completed show search yet.
+              {unsearchedArtWatchTerms.length
+                ? `${unsearchedArtWatchTerms.length} active watchlist ${
+                    unsearchedArtWatchTerms.length === 1 ? "name has" : "names have"
+                  } not been included in a completed show search yet.`
+                : ""}
+              {failedArtWatchTerms.length
+                ? ` ${failedArtWatchTerms.length} ${
+                    failedArtWatchTerms.length === 1 ? "name is" : "names are"
+                  } paused after a timed-out search.`
+                : ""}
             </p>
           ) : null}
 

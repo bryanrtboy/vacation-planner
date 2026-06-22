@@ -11,6 +11,7 @@ import {
   getLatestArtShowSearchRun,
   listArtShowLeads,
   listArtWatchTermsWithSeed,
+  markArtWatchTermsSearchFailed,
   markArtWatchTermsSearched,
   replaceArtWatchTerms,
   summarizeArtShowSearchRun,
@@ -21,7 +22,6 @@ import {
 } from "@/lib/storage/art-show-watch-store";
 import {
   getUsageState,
-  releaseReservedChecks,
   tryReserveChecks
 } from "@/lib/price-watch/usage-store";
 import type { ArtShowLeadStatus } from "@/lib/types";
@@ -31,6 +31,7 @@ export const runtime = "nodejs";
 const aiUsageService = "ai";
 const artShowSearchTimeoutMs = 1000 * 60 * 2;
 const artShowSearchFreshDays = 30;
+const artShowSearchFailureCooldownDays = 30;
 
 function labelsFromText(value: string) {
   return value
@@ -40,8 +41,14 @@ function labelsFromText(value: string) {
     .slice(0, 80);
 }
 
-function artWatchTermIsDue(term: { active: boolean; lastSearchedAt?: string }, cutoffIso: string) {
-  return term.active && (!term.lastSearchedAt || term.lastSearchedAt < cutoffIso);
+function artWatchTermIsDue(
+  term: { active: boolean; lastSearchedAt?: string; lastFailedAt?: string },
+  searchedCutoffIso: string,
+  failedCutoffIso: string
+) {
+  if (!term.active) return false;
+  if (term.lastFailedAt && term.lastFailedAt >= failedCutoffIso) return false;
+  return !term.lastSearchedAt || term.lastSearchedAt < searchedCutoffIso;
 }
 
 function artShowSearchErrorMessage(error: unknown) {
@@ -157,7 +164,7 @@ async function processNextArtShowBatch() {
         : "Batch finished, but show leads could not be saved."
     );
   } catch (error) {
-    await releaseReservedChecks(reservation.allowed, aiUsageService);
+    await markArtWatchTermsSearchFailed(batch.termLabels);
     await updateArtShowSearchBatch(batch.id, {
       status: "error",
       resultCount: 0,
@@ -208,7 +215,12 @@ export async function POST() {
   const freshCutoff = new Date(
     Date.now() - 1000 * 60 * 60 * 24 * artShowSearchFreshDays
   ).toISOString();
-  const dueTerms = watchTerms.filter((term) => artWatchTermIsDue(term, freshCutoff));
+  const failureCutoff = new Date(
+    Date.now() - 1000 * 60 * 60 * 24 * artShowSearchFailureCooldownDays
+  ).toISOString();
+  const dueTerms = watchTerms.filter((term) =>
+    artWatchTermIsDue(term, freshCutoff, failureCutoff)
+  );
   const artists = dueTerms.map((term) => term.label);
 
   if (!watchTerms.some((term) => term.active)) {
@@ -220,7 +232,7 @@ export async function POST() {
   if (!artists.length) {
     return NextResponse.json(
       await artShowsPayload(
-        `All active watchlist names have completed a show search in the last ${artShowSearchFreshDays} days.`
+        `All active watchlist names have either completed a show search or hit a timeout cooldown in the last ${artShowSearchFreshDays} days.`
       )
     );
   }
