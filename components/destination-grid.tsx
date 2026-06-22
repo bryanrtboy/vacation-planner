@@ -520,6 +520,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
   const [aiUsage, setAiUsage] = useState<UsageState | null>(null);
+  const [artShowUsage, setArtShowUsage] = useState<UsageState | null>(null);
   const [suggestions, setSuggestions] = useState<DestinationSuggestion[]>([]);
   const [artWatchTerms, setArtWatchTerms] = useState<ArtWatchTerm[]>([]);
   const [artWatchText, setArtWatchText] = useState("");
@@ -936,7 +937,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (!response.ok) return;
         const data = (await response.json()) as ArtShowsResponse;
         if (cancelled) return;
-        setAiUsage(data.usage);
+        setArtShowUsage(data.usage);
         setArtWatchTerms(data.watchTerms);
         setArtWatchText(watchTermsText(data.watchTerms));
         setArtShowLeads(data.leads);
@@ -976,7 +977,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (response.ok) {
           const data = (await response.json()) as ArtShowsResponse;
           if (cancelled) return;
-          setAiUsage(data.usage);
+          setArtShowUsage(data.usage);
           setArtWatchTerms(data.watchTerms);
           setArtWatchText(watchTermsText(data.watchTerms));
           setArtShowLeads(data.leads);
@@ -1418,7 +1419,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         body: JSON.stringify({ text: artWatchText })
       });
       const data = (await response.json()) as ArtShowsResponse;
-      setAiUsage(data.usage);
+      setArtShowUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1453,12 +1454,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
 
     setSearchingArtShows(true);
-    setArtShowStatusMessage("Searching museum and major gallery show leads...");
+    setArtShowStatusMessage("Searching Google source candidates for museum and major gallery shows...");
 
     try {
       const response = await fetch("/api/art-shows", { method: "POST" });
       const data = (await response.json()) as ArtShowsResponse;
-      setAiUsage(data.usage);
+      setArtShowUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1467,7 +1468,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtShowStatusMessage(
         data.message ||
           artShowProgressMessage(data.searchRun, data.searchProgress) ||
-          (response.ok ? "Art show search started." : "Unable to search shows.")
+          (response.ok ? "Art show source search started." : "Unable to search shows.")
       );
       setProcessingArtShowBatches(data.searchRun?.status === "running");
     } catch {
@@ -1488,7 +1489,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         body: JSON.stringify({ id, status })
       });
       const data = (await response.json()) as ArtShowsResponse;
-      setAiUsage(data.usage);
+      setArtShowUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1919,10 +1920,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for 30 days.
               </p>
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
-                Cost guard: one watchlist name per Gemini request. Timed-out names pause for 30 days.
+                Cost guard: controlled Google source searches through SerpAPI. Gemini search grounding is not used.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {artShowUsage ? (
+                <span className="inline-flex items-center rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-ink/42">
+                  {artShowUsage.remaining}/{artShowUsage.limit} source searches left
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setArtWatchEditing((current) => !current)}
@@ -1933,7 +1939,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <button
                 type="button"
                 onClick={() => void findArtShows()}
-                disabled={searchingArtShows || artShowSearchRunning || aiUsage?.remaining === 0}
+                disabled={
+                  searchingArtShows || artShowSearchRunning || artShowUsage?.remaining === 0
+                }
                 className="inline-flex items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
               >
                 <Search

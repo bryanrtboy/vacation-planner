@@ -94,7 +94,7 @@ const seedArtists = [
   "Raphael"
 ];
 
-export const artShowBatchSize = 1;
+export const artShowBatchSize = 6;
 
 function slugify(value: string) {
   return value

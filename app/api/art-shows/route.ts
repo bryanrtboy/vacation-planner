@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findArtShowsWithGemini } from "@/lib/ai/gemini";
+import { findArtShowsWithSerpApi } from "@/lib/art-shows/serpapi";
 import {
   artShowWatchStorageState,
   claimNextArtShowSearchBatch,
@@ -28,7 +28,7 @@ import type { ArtShowLeadStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const aiUsageService = "ai";
+const artShowUsageService = "serpapi";
 const artShowSearchTimeoutMs = 1000 * 60 * 2;
 const artShowSearchFreshDays = 30;
 const artShowSearchFailureCooldownDays = 30;
@@ -57,17 +57,17 @@ function artShowSearchErrorMessage(error: unknown) {
 
   if (normalized.includes("quota") || normalized.includes("rate limit")) {
     return [
-      "Gemini could not run the art show search because the Google API quota for this request is unavailable.",
-      "This is separate from the app's daily search cap. Check the Gemini API key, billing/quota, and whether Google Search grounding is available for the configured model."
+      "The art show search could not run because provider quota is unavailable.",
+      "This search now uses SerpAPI Google organic results, not Gemini grounding. Check the SerpAPI key, billing, and daily cap."
     ].join(" ");
   }
 
-  if (normalized.includes("api key")) {
-    return "Gemini API key is missing or unavailable in Cloudflare. Add GEMINI_API_KEY as a Cloudflare secret before searching shows.";
+  if (normalized.includes("api key") || normalized.includes("serpapi key")) {
+    return "SerpAPI key is missing or unavailable in Cloudflare. Add SERPAPI_API_KEY as a Cloudflare secret before searching shows.";
   }
 
   if (normalized.includes("abort") || normalized.includes("timeout")) {
-    return "Art show search timed out before Gemini returned sourced leads. This batch can retry in a future sweep.";
+    return "Art show source search timed out before SerpAPI returned Google results. This batch can retry in a future sweep.";
   }
 
   return message;
@@ -79,7 +79,7 @@ async function artShowsPayload(message?: string) {
     return {
       storageReady: false,
       message: message ?? storageState.message,
-      usage: await getUsageState(aiUsageService),
+      usage: await getUsageState(artShowUsageService),
       watchTerms: [],
       leads: []
     };
@@ -95,7 +95,7 @@ async function artShowsPayload(message?: string) {
   return {
     storageReady: true,
     message,
-    usage: await getUsageState(aiUsageService),
+    usage: await getUsageState(artShowUsageService),
     watchTerms: await listArtWatchTermsWithSeed(),
     leads: await listArtShowLeads("new"),
     searchRun,
@@ -113,35 +113,35 @@ async function processNextArtShowBatch() {
     return artShowsPayload("No pending art show batches remain.");
   }
 
-  const reservation = await tryReserveChecks(1, aiUsageService);
+  const reservation = await tryReserveChecks(1, artShowUsageService);
   if (reservation.allowed < 1) {
     await updateArtShowSearchBatch(batch.id, {
       status: "error",
       resultCount: 0,
-      message: "Daily AI search cap reached. Retry will continue with remaining names."
+      message: "Daily controlled search cap reached. Retry will continue with remaining names."
     });
     await updateArtShowSearchRun(activeRun.id, {
       status: "error",
       resultCount: activeRun.resultCount,
-      message: "Daily AI search cap reached. Start a new sweep later to continue remaining names."
+      message: "Daily controlled search cap reached. Start a new sweep later to continue remaining names."
     });
     return {
-      ...(await artShowsPayload("Daily AI search cap reached. Existing show leads are still shown.")),
+      ...(await artShowsPayload("Daily controlled search cap reached. Existing show leads are still shown.")),
       usage: reservation.usage
     };
   }
 
   try {
-    const result = await findArtShowsWithGemini(batch.termLabels);
+    const result = await findArtShowsWithSerpApi(batch.termLabels);
     if (!result.leads.length) {
       await markArtWatchTermsSearched(batch.termLabels);
       await updateArtShowSearchBatch(batch.id, {
         status: "complete",
         resultCount: 0,
-        message: "No high-confidence show leads found for this batch."
+        message: "No useful source candidates found for this batch."
       });
       await summarizeArtShowSearchRun(activeRun.id);
-      return artShowsPayload("Batch complete. No high-confidence show leads found.");
+      return artShowsPayload("Batch complete. No useful source candidates found.");
     }
 
     const saved = await writeArtShowLeads(result.leads);
@@ -153,7 +153,7 @@ async function processNextArtShowBatch() {
         ? `Saved ${result.leads.length} sourced show lead${
             result.leads.length === 1 ? "" : "s"
           } for this batch.`
-        : "Show leads were found, but could not be saved. Check the migration and logs."
+        : "Source candidates were found, but could not be saved. Check the migration and logs."
     });
     await summarizeArtShowSearchRun(activeRun.id);
     return artShowsPayload(
@@ -161,7 +161,7 @@ async function processNextArtShowBatch() {
         ? `Batch complete. Saved ${result.leads.length} sourced show lead${
             result.leads.length === 1 ? "" : "s"
           }.`
-        : "Batch finished, but show leads could not be saved."
+        : "Batch finished, but source candidates could not be saved."
     );
   } catch (error) {
     await markArtWatchTermsSearchFailed(batch.termLabels);
@@ -242,13 +242,13 @@ export async function POST() {
     return NextResponse.json(
       {
         ...(await artShowsPayload("Unable to start art show search. Check the migration and logs.")),
-        usage: await getUsageState(aiUsageService)
+        usage: await getUsageState(artShowUsageService)
       },
       { status: 500 }
     );
   }
 
-  return NextResponse.json(await artShowsPayload("Art show search queued."));
+  return NextResponse.json(await artShowsPayload("Art show source search queued."));
 }
 
 export async function PATCH(request: Request) {
