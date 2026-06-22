@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { findArtShowsWithGemini } from "@/lib/ai/gemini";
 import {
   artShowWatchStorageState,
+  claimNextArtShowSearchBatch,
   createArtShowSearchRun,
-  expireStaleArtShowSearchRuns,
+  expireStaleArtShowSearchBatches,
+  expireStaleArtShowSearchRunsWithoutBatches,
+  getArtShowSearchProgress,
   getActiveArtShowSearchRun,
   getLatestArtShowSearchRun,
   listArtShowLeads,
   listArtWatchTermsWithSeed,
-  markActiveArtWatchTermsSearched,
+  markArtWatchTermsSearched,
   replaceArtWatchTerms,
+  summarizeArtShowSearchRun,
+  updateArtShowSearchBatch,
   updateArtShowSearchRun,
   updateArtShowLeadStatus,
   writeArtShowLeads
@@ -69,9 +73,12 @@ async function artShowsPayload(message?: string) {
     };
   }
 
-  await expireStaleArtShowSearchRuns(
-    new Date(Date.now() - artShowSearchTimeoutMs).toISOString()
-  );
+  const staleCutoff = new Date(Date.now() - artShowSearchTimeoutMs).toISOString();
+  await expireStaleArtShowSearchBatches(staleCutoff);
+  await expireStaleArtShowSearchRunsWithoutBatches(staleCutoff);
+  const activeRun = await getActiveArtShowSearchRun();
+  if (activeRun) await summarizeArtShowSearchRun(activeRun.id);
+  const searchRun = (await getActiveArtShowSearchRun()) ?? (await getLatestArtShowSearchRun());
 
   return {
     storageReady: true,
@@ -79,53 +86,80 @@ async function artShowsPayload(message?: string) {
     usage: await getUsageState(aiUsageService),
     watchTerms: await listArtWatchTermsWithSeed(),
     leads: await listArtShowLeads("new"),
-    searchRun: (await getActiveArtShowSearchRun()) ?? (await getLatestArtShowSearchRun())
+    searchRun,
+    searchProgress: await getArtShowSearchProgress(searchRun)
   };
 }
 
-async function completeArtShowSearchRun(
-  runId: string,
-  artists: string[],
-  reservedChecks: number
-) {
+async function processNextArtShowBatch() {
+  const activeRun = await getActiveArtShowSearchRun();
+  if (!activeRun) return artShowsPayload("No active art show search is running.");
+
+  const batch = await claimNextArtShowSearchBatch(activeRun.id);
+  if (!batch) {
+    await summarizeArtShowSearchRun(activeRun.id);
+    return artShowsPayload("No pending art show batches remain.");
+  }
+
+  const reservation = await tryReserveChecks(1, aiUsageService);
+  if (reservation.allowed < 1) {
+    await updateArtShowSearchBatch(batch.id, {
+      status: "error",
+      resultCount: 0,
+      message: "Daily AI search cap reached. Retry will continue with remaining names."
+    });
+    await updateArtShowSearchRun(activeRun.id, {
+      status: "error",
+      resultCount: activeRun.resultCount,
+      message: "Daily AI search cap reached. Start a new sweep later to continue remaining names."
+    });
+    return {
+      ...(await artShowsPayload("Daily AI search cap reached. Existing show leads are still shown.")),
+      usage: reservation.usage
+    };
+  }
+
   try {
-    const result = await findArtShowsWithGemini(artists);
+    const result = await findArtShowsWithGemini(batch.termLabels);
     if (!result.leads.length) {
-      await markActiveArtWatchTermsSearched();
-      await updateArtShowSearchRun(runId, {
+      await markArtWatchTermsSearched(batch.termLabels);
+      await updateArtShowSearchBatch(batch.id, {
         status: "complete",
         resultCount: 0,
-        message: "No high-confidence show leads found in this search."
+        message: "No high-confidence show leads found for this batch."
       });
-      return;
+      await summarizeArtShowSearchRun(activeRun.id);
+      return artShowsPayload("Batch complete. No high-confidence show leads found.");
     }
 
     const saved = await writeArtShowLeads(result.leads);
-    if (saved) await markActiveArtWatchTermsSearched();
-    await updateArtShowSearchRun(runId, {
+    if (saved) await markArtWatchTermsSearched(batch.termLabels);
+    await updateArtShowSearchBatch(batch.id, {
       status: saved ? "complete" : "error",
       resultCount: saved ? result.leads.length : 0,
       message: saved
         ? `Saved ${result.leads.length} sourced show lead${
             result.leads.length === 1 ? "" : "s"
-          }.`
+          } for this batch.`
         : "Show leads were found, but could not be saved. Check the migration and logs."
     });
+    await summarizeArtShowSearchRun(activeRun.id);
+    return artShowsPayload(
+      saved
+        ? `Batch complete. Saved ${result.leads.length} sourced show lead${
+            result.leads.length === 1 ? "" : "s"
+          }.`
+        : "Batch finished, but show leads could not be saved."
+    );
   } catch (error) {
-    await releaseReservedChecks(reservedChecks, aiUsageService);
-    await updateArtShowSearchRun(runId, {
+    await releaseReservedChecks(reservation.allowed, aiUsageService);
+    await updateArtShowSearchBatch(batch.id, {
       status: "error",
       resultCount: 0,
       message: artShowSearchErrorMessage(error)
     });
-  }
-}
-
-function runAfterResponse(task: Promise<void>) {
-  try {
-    getCloudflareContext().ctx.waitUntil(task);
-  } catch {
-    void task;
+    await summarizeArtShowSearchRun(activeRun.id);
+    return artShowsPayload(artShowSearchErrorMessage(error));
   }
 }
 
@@ -157,15 +191,16 @@ export async function POST() {
     return NextResponse.json(await artShowsPayload(storageState.message), { status: 503 });
   }
 
-  await expireStaleArtShowSearchRuns(
-    new Date(Date.now() - artShowSearchTimeoutMs).toISOString()
-  );
+  const staleCutoff = new Date(Date.now() - artShowSearchTimeoutMs).toISOString();
+  await expireStaleArtShowSearchBatches(staleCutoff);
+  await expireStaleArtShowSearchRunsWithoutBatches(staleCutoff);
   const activeRun = await getActiveArtShowSearchRun();
   if (activeRun) {
     return NextResponse.json(await artShowsPayload("Art show search is already running."));
   }
 
-  const artists = (await listArtWatchTermsWithSeed()).filter((term) => term.active).map((term) => term.label);
+  const watchTerms = await listArtWatchTermsWithSeed();
+  const artists = watchTerms.filter((term) => term.active).map((term) => term.label);
 
   if (!artists.length) {
     return NextResponse.json(await artShowsPayload("Add artists before searching shows."), {
@@ -173,38 +208,30 @@ export async function POST() {
     });
   }
 
-  const reservation = await tryReserveChecks(1, aiUsageService);
-  if (reservation.allowed < 1) {
-    return NextResponse.json(
-      {
-        ...(await artShowsPayload("Daily AI search cap reached. Existing show leads are still shown.")),
-        usage: reservation.usage
-      },
-      { status: 429 }
-    );
-  }
-
-  const run = await createArtShowSearchRun(artists.length);
+  const run = await createArtShowSearchRun(watchTerms);
   if (!run) {
-    const usage = await releaseReservedChecks(reservation.allowed, aiUsageService);
     return NextResponse.json(
       {
         ...(await artShowsPayload("Unable to start art show search. Check the migration and logs.")),
-        usage
+        usage: await getUsageState(aiUsageService)
       },
       { status: 500 }
     );
   }
 
-  runAfterResponse(completeArtShowSearchRun(run.id, artists, reservation.allowed));
-  return NextResponse.json(await artShowsPayload("Art show search started."));
+  return NextResponse.json(await artShowsPayload("Art show search queued."));
 }
 
 export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => null)) as {
+    action?: "process-next-batch";
     id?: string;
     status?: ArtShowLeadStatus;
   } | null;
+
+  if (body?.action === "process-next-batch") {
+    return NextResponse.json(await processNextArtShowBatch());
+  }
 
   if (!body?.id || !body.status || !["new", "saved", "hidden"].includes(body.status)) {
     return NextResponse.json(await artShowsPayload("Lead id and status are required."), {

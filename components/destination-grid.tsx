@@ -36,6 +36,7 @@ import {
 } from "@/lib/trip-preferences";
 import type {
   ArtShowLead,
+  ArtShowSearchProgress,
   ArtShowSearchRun,
   ArtWatchTerm,
   Destination,
@@ -179,6 +180,7 @@ type ArtShowsResponse = {
   watchTerms: ArtWatchTerm[];
   leads: ArtShowLead[];
   searchRun?: ArtShowSearchRun;
+  searchProgress?: ArtShowSearchProgress;
 };
 
 type DestinationScenarioResponse = {
@@ -419,6 +421,20 @@ function artShowRunMessage(run?: ArtShowSearchRun) {
   return run.message ?? "";
 }
 
+function artShowProgressMessage(run?: ArtShowSearchRun, progress?: ArtShowSearchProgress) {
+  if (!run || run.status !== "running" || !progress?.totalBatches) return artShowRunMessage(run);
+
+  const currentIndex = Math.min(progress.completedBatches + 1, progress.totalBatches);
+  const currentTerms = progress.currentBatch?.termLabels.join(", ");
+  return [
+    `Searching batch ${currentIndex} of ${progress.totalBatches}`,
+    currentTerms ? `current: ${currentTerms}` : undefined,
+    `${progress.completedBatches} complete, ${progress.remainingTerms} names left`
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function artShowRunIsPastUiLimit(run?: ArtShowSearchRun) {
   if (!run || run.status !== "running") return false;
   return Date.now() - new Date(run.startedAt).getTime() > artShowUiPollLimitMs;
@@ -500,8 +516,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [artWatchText, setArtWatchText] = useState("");
   const [artShowLeads, setArtShowLeads] = useState<ArtShowLead[]>([]);
   const [artShowSearchRun, setArtShowSearchRun] = useState<ArtShowSearchRun | undefined>();
+  const [artShowSearchProgress, setArtShowSearchProgress] = useState<ArtShowSearchProgress | undefined>();
   const [artShowWatchOpen, setArtShowWatchOpen] = useState(false);
   const [artWatchEditing, setArtWatchEditing] = useState(false);
+  const [artWatchListExpanded, setArtWatchListExpanded] = useState(false);
   const [searchingArtShows, setSearchingArtShows] = useState(false);
   const [savingArtWatch, setSavingArtWatch] = useState(false);
   const [reviewingArtShowId, setReviewingArtShowId] = useState<string | null>(null);
@@ -526,6 +544,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const displayedArtShowStatusMessage = artShowSearchPastUiLimit
     ? "Art show search took too long and stopped polling. Reload Art Show Watch to check whether Cloudflare finished it."
     : artShowStatusMessage;
+  const activeArtWatchTerms = artWatchTerms.filter((term) => term.active);
+  const visibleArtWatchTerms = artWatchListExpanded
+    ? activeArtWatchTerms
+    : activeArtWatchTerms.slice(0, 18);
+  const hiddenArtWatchTermCount = Math.max(activeArtWatchTerms.length - visibleArtWatchTerms.length, 0);
   const unsearchedArtWatchTerms = artWatchTerms.filter(
     (term) => term.active && !term.lastSearchedAt
   );
@@ -908,8 +931,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         setArtWatchText(watchTermsText(data.watchTerms));
         setArtShowLeads(data.leads);
         setArtShowSearchRun(data.searchRun);
+        setArtShowSearchProgress(data.searchProgress);
         if (data.searchRun?.status === "running") setArtShowWatchOpen(true);
-        setArtShowStatusMessage(data.message ?? artShowRunMessage(data.searchRun));
+        setArtShowStatusMessage(
+          data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
+        );
       } catch {
         // Art show watch is optional; destination browsing still works without it.
       }
@@ -926,11 +952,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     if (!artShowSearchRunning) return;
 
     let cancelled = false;
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/art-shows");
-          if (!response.ok) return;
+    let timeoutId: number | undefined;
+
+    async function processBatchAndScheduleNext() {
+      try {
+        const response = await fetch("/api/art-shows", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "process-next-batch" })
+        });
+        if (response.ok) {
           const data = (await response.json()) as ArtShowsResponse;
           if (cancelled) return;
           setAiUsage(data.usage);
@@ -938,16 +969,25 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           setArtWatchText(watchTermsText(data.watchTerms));
           setArtShowLeads(data.leads);
           setArtShowSearchRun(data.searchRun);
-          setArtShowStatusMessage(data.message ?? artShowRunMessage(data.searchRun));
-        } catch {
-          // Keep the current running state visible; the next poll can recover.
+          setArtShowSearchProgress(data.searchProgress);
+          setArtShowStatusMessage(
+            data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
+          );
         }
-      })();
-    }, artShowPollIntervalMs);
+      } catch {
+        // Keep the current running state visible; the next attempt can recover.
+      } finally {
+        if (!cancelled) {
+          timeoutId = window.setTimeout(processBatchAndScheduleNext, artShowPollIntervalMs);
+        }
+      }
+    }
+
+    void processBatchAndScheduleNext();
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [artShowSearchRunning]);
 
@@ -1372,8 +1412,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
       setArtShowSearchRun(data.searchRun);
+      setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
-        data.message ?? (response.ok ? "Art show watchlist saved." : "Unable to save watchlist.")
+        data.message ??
+          (response.ok
+            ? `Watchlist saved · ${
+                data.watchTerms.filter((term) => term.active).length
+              } active names · ${
+                data.watchTerms.filter((term) => term.active && !term.lastSearchedAt).length
+              } not searched yet`
+            : "Unable to save watchlist.")
       );
       if (response.ok) setArtWatchEditing(false);
     } catch {
@@ -1395,9 +1443,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
       setArtShowSearchRun(data.searchRun);
+      setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
         data.message ||
-          artShowRunMessage(data.searchRun) ||
+          artShowProgressMessage(data.searchRun, data.searchProgress) ||
           (response.ok ? "Art show search started." : "Unable to search shows.")
       );
     } catch {
@@ -1423,6 +1472,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
       setArtShowSearchRun(data.searchRun);
+      setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
         data.message ?? (response.ok ? "Show lead updated." : "Unable to update show lead.")
       );
@@ -1895,18 +1945,48 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               </div>
             </div>
           ) : (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {artWatchTerms
-                .filter((term) => term.active)
-                .slice(0, 18)
-                .map((term) => (
+            <div className="mt-3 grid gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                {visibleArtWatchTerms.map((term) => (
                   <span
                     key={term.id}
-                    className="rounded-md border border-harbor/15 bg-harbor/10 px-2 py-1 text-[11px] font-semibold text-harbor"
+                    className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${
+                      term.lastSearchedAt
+                        ? "border-harbor/15 bg-harbor/10 text-harbor"
+                        : "border-[#d29a36]/30 bg-[#fff4dc] text-[#8a5a12]"
+                    }`}
                   >
                     {term.label}
+                    {!term.lastSearchedAt ? (
+                      <span className="ml-1 font-bold uppercase tracking-wide">new</span>
+                    ) : null}
                   </span>
                 ))}
+                {hiddenArtWatchTermCount ? (
+                  <button
+                    type="button"
+                    onClick={() => setArtWatchListExpanded(true)}
+                    className="rounded-md border border-ink/12 bg-white px-2 py-1 text-[11px] font-semibold text-ink/54 transition hover:border-harbor/35 hover:text-harbor"
+                  >
+                    +{hiddenArtWatchTermCount} more
+                  </button>
+                ) : null}
+                {artWatchListExpanded && activeArtWatchTerms.length > 18 ? (
+                  <button
+                    type="button"
+                    onClick={() => setArtWatchListExpanded(false)}
+                    className="rounded-md border border-ink/12 bg-white px-2 py-1 text-[11px] font-semibold text-ink/54 transition hover:border-harbor/35 hover:text-harbor"
+                  >
+                    Show fewer
+                  </button>
+                ) : null}
+              </div>
+              <p className="text-xs font-medium text-ink/42">
+                {activeArtWatchTerms.length} active names
+                {unsearchedArtWatchTerms.length
+                  ? ` · ${unsearchedArtWatchTerms.length} not searched yet`
+                  : ""}
+              </p>
             </div>
           )}
 
@@ -1922,6 +2002,28 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             <p className="mt-3 text-xs font-medium text-ink/54">
               {displayedArtShowStatusMessage}
             </p>
+          ) : null}
+
+          {artShowSearchRun?.status === "running" && artShowSearchProgress?.totalBatches ? (
+            <div className="mt-2 rounded-md border border-harbor/12 bg-harbor/10 px-3 py-2 text-xs font-medium text-ink/58">
+              <p className="font-semibold text-harbor">
+                {artShowSearchProgress.completedBatches} of{" "}
+                {artShowSearchProgress.totalBatches} batches complete
+              </p>
+              {artShowSearchProgress.currentBatch?.termLabels.length ? (
+                <p className="mt-1">
+                  Current batch: {artShowSearchProgress.currentBatch.termLabels.join(", ")}
+                </p>
+              ) : null}
+              <p className="mt-1">
+                {artShowSearchProgress.remainingTerms} names left in this sweep
+                {artShowSearchProgress.errorBatches
+                  ? ` · ${artShowSearchProgress.errorBatches} batch${
+                      artShowSearchProgress.errorBatches === 1 ? "" : "es"
+                    } need retry`
+                  : ""}
+              </p>
+            </div>
           ) : null}
 
           {artShowSearchRun?.status === "complete" && artShowSearchRun.completedAt ? (

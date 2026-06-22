@@ -2,6 +2,9 @@ import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
 import type {
   ArtShowLead,
   ArtShowLeadStatus,
+  ArtShowSearchBatch,
+  ArtShowSearchBatchStatus,
+  ArtShowSearchProgress,
   ArtShowSearchRun,
   ArtShowSearchRunStatus,
   ArtWatchTerm
@@ -49,6 +52,18 @@ type ArtShowSearchRunRow = {
   completed_at: string | null;
 };
 
+type ArtShowSearchBatchRow = {
+  id: string;
+  run_id: string;
+  status: ArtShowSearchBatchStatus;
+  term_labels_json: string;
+  result_count: number;
+  message: string | null;
+  attempt_count: number;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
 export type ArtShowWatchStorageState = {
   ready: boolean;
   message?: string;
@@ -76,6 +91,8 @@ const seedArtists = [
   "James Turrell",
   "Raphael"
 ];
+
+export const artShowBatchSize = 3;
 
 function slugify(value: string) {
   return value
@@ -135,6 +152,29 @@ function rowToSearchRun(row: ArtShowSearchRunRow): ArtShowSearchRun {
   };
 }
 
+function rowToSearchBatch(row: ArtShowSearchBatchRow): ArtShowSearchBatch {
+  let termLabels: string[] = [];
+
+  try {
+    const parsed = JSON.parse(row.term_labels_json) as unknown;
+    termLabels = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    termLabels = [];
+  }
+
+  return {
+    id: row.id,
+    runId: row.run_id,
+    status: row.status,
+    termLabels,
+    resultCount: row.result_count,
+    message: row.message ?? undefined,
+    attemptCount: row.attempt_count,
+    startedAt: row.started_at ?? undefined,
+    completedAt: row.completed_at ?? undefined
+  };
+}
+
 export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageState> {
   const db = await getD1Database();
   if (!db) {
@@ -148,7 +188,12 @@ export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageSta
     .prepare(
       `SELECT name FROM sqlite_master
        WHERE type = 'table'
-         AND name IN ('art_watch_terms', 'art_show_leads', 'art_show_search_runs')`
+         AND name IN (
+           'art_watch_terms',
+           'art_show_leads',
+           'art_show_search_runs',
+           'art_show_search_batches'
+         )`
     )
     .all<{ name: string }>()
     .catch(() => null);
@@ -157,7 +202,8 @@ export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageSta
   if (
     !tableNames.has("art_watch_terms") ||
     !tableNames.has("art_show_leads") ||
-    !tableNames.has("art_show_search_runs")
+    !tableNames.has("art_show_search_runs") ||
+    !tableNames.has("art_show_search_batches")
   ) {
     return {
       ready: false,
@@ -213,6 +259,21 @@ export async function listArtWatchTermsWithSeed(): Promise<ArtWatchTerm[]> {
     terms = await listArtWatchTerms();
   }
   return terms;
+}
+
+export function sortedArtWatchTermsForSearch(terms: ArtWatchTerm[]) {
+  return [...terms]
+    .filter((term) => term.active)
+    .sort((first, second) => {
+      if (!first.lastSearchedAt && second.lastSearchedAt) return -1;
+      if (first.lastSearchedAt && !second.lastSearchedAt) return 1;
+      if (first.lastSearchedAt && second.lastSearchedAt) {
+        const dateDelta =
+          new Date(first.lastSearchedAt).getTime() - new Date(second.lastSearchedAt).getTime();
+        if (dateDelta) return dateDelta;
+      }
+      return first.label.localeCompare(second.label);
+    });
 }
 
 export async function replaceArtWatchTerms(labels: string[]) {
@@ -363,20 +424,66 @@ export async function markActiveArtWatchTermsSearched(timestamp = nowIso()) {
   return Boolean(result);
 }
 
-export async function createArtShowSearchRun(artistCount: number): Promise<ArtShowSearchRun | null> {
+export async function markArtWatchTermsSearched(labels: string[], timestamp = nowIso()) {
+  const db = await getD1Database();
+  if (!db || !labels.length) return false;
+
+  const ids = labels.map((label) => slugify(label));
+  const placeholders = ids.map((_, index) => `?${index + 2}`).join(", ");
+  const result = await db
+    .prepare(
+      `UPDATE art_watch_terms
+       SET last_searched_at = ?1, updated_at = ?1
+       WHERE id IN (${placeholders})`
+    )
+    .bind(timestamp, ...ids)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function createArtShowSearchRun(
+  terms: ArtWatchTerm[],
+  batchSize = artShowBatchSize
+): Promise<ArtShowSearchRun | null> {
   const db = await getD1Database();
   if (!db) return null;
 
   const timestamp = nowIso();
   const id = `art-show-${Date.now().toString(36)}`;
+  const activeTerms = sortedArtWatchTermsForSearch(terms);
+  const batches: string[][] = [];
+
+  for (let index = 0; index < activeTerms.length; index += batchSize) {
+    batches.push(activeTerms.slice(index, index + batchSize).map((term) => term.label));
+  }
+
   const result = await db
-    .prepare(
-      `INSERT INTO art_show_search_runs (
-        id, status, artist_count, result_count, message, started_at, completed_at
-      ) VALUES (?1, 'running', ?2, 0, ?3, ?4, NULL)`
-    )
-    .bind(id, artistCount, "Searching museum and major gallery show leads.", timestamp)
-    .run()
+    .batch([
+      db
+        .prepare(
+          `INSERT INTO art_show_search_runs (
+            id, status, artist_count, result_count, message, started_at, completed_at
+          ) VALUES (?1, 'running', ?2, 0, ?3, ?4, NULL)`
+        )
+        .bind(
+          id,
+          activeTerms.length,
+          `Queued ${batches.length} art show search batch${batches.length === 1 ? "" : "es"}.`,
+          timestamp
+        ),
+      ...batches.map((batch, index) =>
+        db
+          .prepare(
+            `INSERT INTO art_show_search_batches (
+              id, run_id, status, term_labels_json, result_count, message,
+              attempt_count, started_at, completed_at
+            ) VALUES (?1, ?2, 'pending', ?3, 0, NULL, 0, NULL, NULL)`
+          )
+          .bind(`${id}-batch-${String(index + 1).padStart(3, "0")}`, id, JSON.stringify(batch))
+      )
+    ])
     .catch(() => null);
 
   if (!result) return null;
@@ -384,9 +491,9 @@ export async function createArtShowSearchRun(artistCount: number): Promise<ArtSh
   return {
     id,
     status: "running",
-    artistCount,
+    artistCount: activeTerms.length,
     resultCount: 0,
-    message: "Searching museum and major gallery show leads.",
+    message: `Queued ${batches.length} art show search batch${batches.length === 1 ? "" : "es"}.`,
     startedAt: timestamp
   };
 }
@@ -429,6 +536,52 @@ export async function expireStaleArtShowSearchRuns(cutoffIso: string) {
   return Boolean(result);
 }
 
+export async function expireStaleArtShowSearchRunsWithoutBatches(cutoffIso: string) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_runs
+       SET status = 'error',
+           result_count = 0,
+           message = 'Art show search timed out before batch tracking was available. Start a new sweep to continue.',
+           completed_at = ?1
+       WHERE status = 'running'
+         AND started_at < ?2
+         AND NOT EXISTS (
+           SELECT 1 FROM art_show_search_batches
+           WHERE art_show_search_batches.run_id = art_show_search_runs.id
+         )`
+    )
+    .bind(nowIso(), cutoffIso)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function expireStaleArtShowSearchBatches(cutoffIso: string) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const timestamp = nowIso();
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_batches
+       SET status = 'error',
+           message = 'Batch timed out. Retry will continue with remaining names.',
+           completed_at = ?1
+       WHERE status = 'running'
+         AND started_at < ?2`
+    )
+    .bind(timestamp, cutoffIso)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
 export async function getLatestArtShowSearchRun(): Promise<ArtShowSearchRun | null> {
   const db = await getD1Database();
   if (!db) return null;
@@ -443,6 +596,160 @@ export async function getLatestArtShowSearchRun(): Promise<ArtShowSearchRun | nu
     .catch(() => null);
 
   return row ? rowToSearchRun(row) : null;
+}
+
+export async function listArtShowSearchBatches(runId: string): Promise<ArtShowSearchBatch[]> {
+  const db = await getD1Database();
+  if (!db) return [];
+
+  const rows = await db
+    .prepare(
+      `SELECT * FROM art_show_search_batches
+       WHERE run_id = ?1
+       ORDER BY id ASC`
+    )
+    .bind(runId)
+    .all<ArtShowSearchBatchRow>()
+    .catch(() => ({ results: [] }));
+
+  return rows.results.map(rowToSearchBatch);
+}
+
+export function progressFromBatches(batches: ArtShowSearchBatch[]): ArtShowSearchProgress {
+  const currentBatch =
+    batches.find((batch) => batch.status === "running") ??
+    batches.find((batch) => batch.status === "pending") ??
+    batches.find((batch) => batch.status === "error");
+
+  return {
+    totalBatches: batches.length,
+    completedBatches: batches.filter((batch) => batch.status === "complete").length,
+    pendingBatches: batches.filter((batch) => batch.status === "pending").length,
+    runningBatches: batches.filter((batch) => batch.status === "running").length,
+    errorBatches: batches.filter((batch) => batch.status === "error").length,
+    remainingTerms: batches
+      .filter((batch) => batch.status !== "complete")
+      .reduce((total, batch) => total + batch.termLabels.length, 0),
+    currentBatch
+  };
+}
+
+export async function getArtShowSearchProgress(
+  run?: ArtShowSearchRun | null
+): Promise<ArtShowSearchProgress | undefined> {
+  if (!run) return undefined;
+  return progressFromBatches(await listArtShowSearchBatches(run.id));
+}
+
+export async function claimNextArtShowSearchBatch(
+  runId: string
+): Promise<ArtShowSearchBatch | null> {
+  const db = await getD1Database();
+  if (!db) return null;
+
+  const row = await db
+    .prepare(
+      `SELECT * FROM art_show_search_batches
+       WHERE run_id = ?1
+         AND status IN ('pending', 'error')
+       ORDER BY
+         CASE status WHEN 'pending' THEN 0 ELSE 1 END,
+         id ASC
+       LIMIT 1`
+    )
+    .bind(runId)
+    .first<ArtShowSearchBatchRow>()
+    .catch(() => null);
+
+  if (!row) return null;
+
+  const timestamp = nowIso();
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_batches
+       SET status = 'running',
+           started_at = ?1,
+           completed_at = NULL,
+           message = NULL,
+           attempt_count = attempt_count + 1
+       WHERE id = ?2
+         AND status IN ('pending', 'error')`
+    )
+    .bind(timestamp, row.id)
+    .run()
+    .catch(() => null);
+
+  if (!result) return null;
+
+  return {
+    ...rowToSearchBatch(row),
+    status: "running",
+    attemptCount: row.attempt_count + 1,
+    startedAt: timestamp,
+    completedAt: undefined,
+    message: undefined
+  };
+}
+
+export async function updateArtShowSearchBatch(
+  id: string,
+  input: {
+    status: ArtShowSearchBatchStatus;
+    resultCount?: number;
+    message?: string;
+  }
+) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const timestamp = nowIso();
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_batches
+       SET status = ?1,
+           result_count = ?2,
+           message = ?3,
+           completed_at = CASE WHEN ?1 = 'running' THEN completed_at ELSE ?4 END
+       WHERE id = ?5`
+    )
+    .bind(input.status, input.resultCount ?? 0, input.message ?? null, timestamp, id)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function summarizeArtShowSearchRun(runId: string) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const batches = await listArtShowSearchBatches(runId);
+  if (!batches.length) return false;
+
+  const resultCount = batches.reduce((total, batch) => total + batch.resultCount, 0);
+  const incompleteCount = batches.filter(
+    (batch) => batch.status === "pending" || batch.status === "running"
+  ).length;
+  const errorCount = batches.filter((batch) => batch.status === "error").length;
+
+  if (incompleteCount > 0) {
+    return updateArtShowSearchRun(runId, {
+      status: "running",
+      resultCount,
+      message: `Searching batch ${
+        batches.filter((batch) => batch.status === "complete").length + 1
+      } of ${batches.length}.`
+    });
+  }
+
+  return updateArtShowSearchRun(runId, {
+    status: errorCount === batches.length ? "error" : "complete",
+    resultCount,
+    message:
+      errorCount > 0
+        ? `Finished with ${errorCount} timed-out batch${errorCount === 1 ? "" : "es"}. Retry will continue with remaining names.`
+        : `Saved ${resultCount} sourced show lead${resultCount === 1 ? "" : "s"}.`
+  });
 }
 
 export async function updateArtShowSearchRun(

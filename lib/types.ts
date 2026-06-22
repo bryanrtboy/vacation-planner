@@ -263,6 +263,7 @@ export type ArtShowLead = {
 };
 
 export type ArtShowSearchRunStatus = "running" | "complete" | "error";
+export type ArtShowSearchBatchStatus = "pending" | "running" | "complete" | "error";
 
 export type ArtShowSearchRun = {
   id: string;
@@ -272,4 +273,26 @@ export type ArtShowSearchRun = {
   message?: string;
   startedAt: string;
   completedAt?: string;
+};
+
+export type ArtShowSearchBatch = {
+  id: string;
+  runId: string;
+  status: ArtShowSearchBatchStatus;
+  termLabels: string[];
+  resultCount: number;
+  message?: string;
+  attemptCount: number;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export type ArtShowSearchProgress = {
+  totalBatches: number;
+  completedBatches: number;
+  pendingBatches: number;
+  runningBatches: number;
+  errorBatches: number;
+  remainingTerms: number;
+  currentBatch?: ArtShowSearchBatch;
 };
