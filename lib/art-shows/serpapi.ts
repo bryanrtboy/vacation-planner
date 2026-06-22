@@ -44,6 +44,23 @@ const weakSourcePattern =
 const exhibitionPattern =
   /\b(exhibition|exhibitions|retrospective|on view|opens?|opening|museum|gallery|galleries|kunsthalle|foundation|fondation|centre|center|institute|show|biennial|triennial)\b/i;
 const futureDatePattern = /\b(2026|2027|2028|2029|opens?|opening|announced|upcoming|on view|through)\b/i;
+const monthPattern =
+  "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+const explicitDatePattern = `(?:\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthPattern})\\.?\\s*,?\\s+\\d{4}|(?:${monthPattern})\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\s*,?\\s+\\d{4})`;
+const monthIndexByName: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11
+};
 
 function compactHash(value: string) {
   let hash = 5381;
@@ -127,6 +144,63 @@ function resultHasOldPostDate(value: string | undefined) {
   return typeof year === "number" && year < oldestUsefulResultYear;
 }
 
+function parseExplicitDate(value: string) {
+  const normalized = value.replace(/\b(\d{1,2})(?:st|nd|rd|th)\b/gi, "$1").replace(/\./g, "");
+  const dayFirst = normalized.match(
+    new RegExp(`\\b(\\d{1,2})\\s+(${monthPattern})\\s*,?\\s+(\\d{4})\\b`, "i")
+  );
+  const monthFirst = normalized.match(
+    new RegExp(`\\b(${monthPattern})\\s+(\\d{1,2})\\s*,?\\s+(\\d{4})\\b`, "i")
+  );
+  const match = dayFirst ?? monthFirst;
+  if (!match) return null;
+
+  const monthName = (dayFirst ? match[2] : match[1]).slice(0, 3).toLowerCase();
+  const monthIndex = monthIndexByName[monthName];
+  const day = Number(dayFirst ? match[1] : match[2]);
+  const year = Number(dayFirst ? match[3] : match[3]);
+  if (
+    typeof monthIndex !== "number" ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(year) ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, monthIndex, day, 23, 59, 59));
+}
+
+function explicitExhibitionEndDate(value: string) {
+  const normalized = value.replace(/[–—]/g, "-");
+  const patterns = [
+    new RegExp(`\\b(?:on view|view|runs?|running|open|exhibition dates?|dates?)\\b.{0,120}\\b(?:through|thru|until|to|-)\\s*(${explicitDatePattern})`, "i"),
+    new RegExp(`\\b(?:through|thru|until)\\s+(${explicitDatePattern})`, "i"),
+    new RegExp(`\\b${explicitDatePattern}\\s*(?:-|to|through|thru|until)\\s*(${explicitDatePattern})`, "i")
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    const date = parseExplicitDate(match[1]);
+    if (date) return date;
+  }
+
+  return null;
+}
+
+function hasPastExplicitExhibitionEndDate(value: string) {
+  const endDate = explicitExhibitionEndDate(value);
+  if (!endDate) return false;
+
+  const today = new Date();
+  const startOfToday = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
+  );
+  return endDate.getTime() < startOfToday.getTime();
+}
+
 function normalizeOrganicResult(
   result: SerpApiOrganicResult,
   artists: string[],
@@ -136,6 +210,7 @@ function normalizeOrganicResult(
   if (resultHasOldPostDate(result.date)) return null;
 
   const text = [result.title, result.snippet, result.source, result.displayed_link].filter(Boolean).join(" ");
+  if (hasPastExplicitExhibitionEndDate(text)) return null;
   if (weakSourcePattern.test(text) || !exhibitionPattern.test(text)) return null;
 
   const matchedArtist = artists.map(artistMatcher).find((matcher) => matcher.matches(text));
