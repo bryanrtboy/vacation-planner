@@ -28,6 +28,24 @@ function labelsFromText(value: string) {
     .slice(0, 80);
 }
 
+function artShowSearchErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unable to search art shows right now.";
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("quota") || normalized.includes("rate limit")) {
+    return [
+      "Gemini could not run the art show search because the Google API quota for this request is unavailable.",
+      "This is separate from the app's daily search cap. Check the Gemini API key, billing/quota, and whether Google Search grounding is available for the configured model."
+    ].join(" ");
+  }
+
+  if (normalized.includes("api key")) {
+    return "Gemini API key is missing or unavailable in Cloudflare. Add GEMINI_API_KEY as a Cloudflare secret before searching shows.";
+  }
+
+  return message;
+}
+
 async function artShowsPayload(message?: string) {
   const storageState = await artShowWatchStorageState();
   if (!storageState.ready) {
@@ -122,7 +140,7 @@ export async function POST() {
     return NextResponse.json(
       {
         ...(await artShowsPayload(
-          error instanceof Error ? error.message : "Unable to search art shows right now."
+          artShowSearchErrorMessage(error)
         )),
         usage
       },
