@@ -36,6 +36,7 @@ import {
 } from "@/lib/trip-preferences";
 import type {
   ArtShowLead,
+  ArtShowSearchRun,
   ArtWatchTerm,
   Destination,
   DestinationSuggestion,
@@ -175,6 +176,7 @@ type ArtShowsResponse = {
   message?: string;
   watchTerms: ArtWatchTerm[];
   leads: ArtShowLead[];
+  searchRun?: ArtShowSearchRun;
 };
 
 type DestinationScenarioResponse = {
@@ -407,6 +409,14 @@ function showLeadLocation(lead: ArtShowLead) {
   return [lead.venue, lead.city, lead.country].filter(Boolean).join(" · ");
 }
 
+function artShowRunMessage(run?: ArtShowSearchRun) {
+  if (!run) return "";
+  if (run.status === "running") {
+    return `Searching ${run.artistCount} watchlist term${run.artistCount === 1 ? "" : "s"}...`;
+  }
+  return run.message ?? "";
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -482,6 +492,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [artWatchTerms, setArtWatchTerms] = useState<ArtWatchTerm[]>([]);
   const [artWatchText, setArtWatchText] = useState("");
   const [artShowLeads, setArtShowLeads] = useState<ArtShowLead[]>([]);
+  const [artShowSearchRun, setArtShowSearchRun] = useState<ArtShowSearchRun | undefined>();
   const [artShowWatchOpen, setArtShowWatchOpen] = useState(false);
   const [artWatchEditing, setArtWatchEditing] = useState(false);
   const [searchingArtShows, setSearchingArtShows] = useState(false);
@@ -502,6 +513,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
+  const artShowSearchRunning = artShowSearchRun?.status === "running";
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -880,7 +892,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         setArtWatchTerms(data.watchTerms);
         setArtWatchText(watchTermsText(data.watchTerms));
         setArtShowLeads(data.leads);
-        if (data.message) setArtShowStatusMessage(data.message);
+        setArtShowSearchRun(data.searchRun);
+        if (data.searchRun?.status === "running") setArtShowWatchOpen(true);
+        setArtShowStatusMessage(data.message ?? artShowRunMessage(data.searchRun));
       } catch {
         // Art show watch is optional; destination browsing still works without it.
       }
@@ -892,6 +906,35 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!artShowSearchRunning) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/art-shows");
+          if (!response.ok) return;
+          const data = (await response.json()) as ArtShowsResponse;
+          if (cancelled) return;
+          setAiUsage(data.usage);
+          setArtWatchTerms(data.watchTerms);
+          setArtWatchText(watchTermsText(data.watchTerms));
+          setArtShowLeads(data.leads);
+          setArtShowSearchRun(data.searchRun);
+          setArtShowStatusMessage(data.message ?? artShowRunMessage(data.searchRun));
+        } catch {
+          // Keep the current running state visible; the next poll can recover.
+        }
+      })();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [artShowSearchRunning]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1313,6 +1356,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setArtShowSearchRun(data.searchRun);
       setArtShowStatusMessage(
         data.message ?? (response.ok ? "Art show watchlist saved." : "Unable to save watchlist.")
       );
@@ -1335,8 +1379,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setArtShowSearchRun(data.searchRun);
       setArtShowStatusMessage(
-        data.message ?? (response.ok ? "Art show search complete." : "Unable to search shows.")
+        data.message ||
+          artShowRunMessage(data.searchRun) ||
+          (response.ok ? "Art show search started." : "Unable to search shows.")
       );
     } catch {
       setArtShowStatusMessage("Unable to search art shows right now.");
@@ -1360,6 +1407,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setArtShowSearchRun(data.searchRun);
       setArtShowStatusMessage(
         data.message ?? (response.ok ? "Show lead updated." : "Unable to update show lead.")
       );
@@ -1793,15 +1841,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <button
                 type="button"
                 onClick={() => void findArtShows()}
-                disabled={searchingArtShows || aiUsage?.remaining === 0}
+                disabled={searchingArtShows || artShowSearchRunning || aiUsage?.remaining === 0}
                 className="inline-flex items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
               >
                 <Search
                   size={13}
-                  className={searchingArtShows ? "animate-spin" : ""}
+                  className={searchingArtShows || artShowSearchRunning ? "animate-spin" : ""}
                   aria-hidden="true"
                 />
-                {searchingArtShows ? "Searching..." : "Find shows"}
+                {searchingArtShows || artShowSearchRunning ? "Searching..." : "Find shows"}
               </button>
             </div>
           </div>
@@ -1846,6 +1894,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
           {artShowStatusMessage ? (
             <p className="mt-3 text-xs font-medium text-ink/54">{artShowStatusMessage}</p>
+          ) : null}
+
+          {artShowSearchRun?.status === "complete" && artShowSearchRun.completedAt ? (
+            <p className="mt-1 text-[11px] font-medium text-ink/38">
+              Last search finished {new Date(artShowSearchRun.completedAt).toLocaleString()}.
+            </p>
           ) : null}
 
           {artShowLeads.length ? (

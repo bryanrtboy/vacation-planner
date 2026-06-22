@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { findArtShowsWithGemini } from "@/lib/ai/gemini";
 import {
   artShowWatchStorageState,
+  createArtShowSearchRun,
   ensureSeedArtWatchTerms,
+  getActiveArtShowSearchRun,
+  getLatestArtShowSearchRun,
   listArtShowLeads,
   listArtWatchTerms,
   replaceArtWatchTerms,
+  updateArtShowSearchRun,
   updateArtShowLeadStatus,
   writeArtShowLeads
 } from "@/lib/storage/art-show-watch-store";
@@ -65,8 +70,53 @@ async function artShowsPayload(message?: string) {
     message,
     usage: await getUsageState(aiUsageService),
     watchTerms: await listArtWatchTerms(),
-    leads: await listArtShowLeads("new")
+    leads: await listArtShowLeads("new"),
+    searchRun: (await getActiveArtShowSearchRun()) ?? (await getLatestArtShowSearchRun())
   };
+}
+
+async function completeArtShowSearchRun(
+  runId: string,
+  artists: string[],
+  reservedChecks: number
+) {
+  try {
+    const result = await findArtShowsWithGemini(artists);
+    if (!result.leads.length) {
+      await updateArtShowSearchRun(runId, {
+        status: "complete",
+        resultCount: 0,
+        message: "No high-confidence show leads found in this search."
+      });
+      return;
+    }
+
+    const saved = await writeArtShowLeads(result.leads);
+    await updateArtShowSearchRun(runId, {
+      status: saved ? "complete" : "error",
+      resultCount: saved ? result.leads.length : 0,
+      message: saved
+        ? `Saved ${result.leads.length} sourced show lead${
+            result.leads.length === 1 ? "" : "s"
+          }.`
+        : "Show leads were found, but could not be saved. Check the migration and logs."
+    });
+  } catch (error) {
+    await releaseReservedChecks(reservedChecks, aiUsageService);
+    await updateArtShowSearchRun(runId, {
+      status: "error",
+      resultCount: 0,
+      message: artShowSearchErrorMessage(error)
+    });
+  }
+}
+
+function runAfterResponse(task: Promise<void>) {
+  try {
+    getCloudflareContext().ctx.waitUntil(task);
+  } catch {
+    void task;
+  }
 }
 
 export async function GET() {
@@ -98,6 +148,11 @@ export async function POST() {
   }
 
   await ensureSeedArtWatchTerms();
+  const activeRun = await getActiveArtShowSearchRun();
+  if (activeRun) {
+    return NextResponse.json(await artShowsPayload("Art show search is already running."));
+  }
+
   const artists = (await listArtWatchTerms()).filter((term) => term.active).map((term) => term.label);
 
   if (!artists.length) {
@@ -117,36 +172,20 @@ export async function POST() {
     );
   }
 
-  try {
-    const result = await findArtShowsWithGemini(artists);
-    if (!result.leads.length) {
-      return NextResponse.json(
-        await artShowsPayload("No high-confidence show leads found in this search.")
-      );
-    }
-
-    const saved = await writeArtShowLeads(result.leads);
-    return NextResponse.json(
-      await artShowsPayload(
-        saved
-          ? `Saved ${result.leads.length} sourced show lead${
-              result.leads.length === 1 ? "" : "s"
-            }.`
-          : "Show leads were found, but could not be saved. Check the migration and logs."
-      )
-    );
-  } catch (error) {
+  const run = await createArtShowSearchRun(artists.length);
+  if (!run) {
     const usage = await releaseReservedChecks(reservation.allowed, aiUsageService);
     return NextResponse.json(
       {
-        ...(await artShowsPayload(
-          artShowSearchErrorMessage(error)
-        )),
+        ...(await artShowsPayload("Unable to start art show search. Check the migration and logs.")),
         usage
       },
-      { status: 502 }
+      { status: 500 }
     );
   }
+
+  runAfterResponse(completeArtShowSearchRun(run.id, artists, reservation.allowed));
+  return NextResponse.json(await artShowsPayload("Art show search started."));
 }
 
 export async function PATCH(request: Request) {

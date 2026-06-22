@@ -1,5 +1,11 @@
 import { getD1Database, nowIso } from "@/lib/storage/cloudflare";
-import type { ArtShowLead, ArtShowLeadStatus, ArtWatchTerm } from "@/lib/types";
+import type {
+  ArtShowLead,
+  ArtShowLeadStatus,
+  ArtShowSearchRun,
+  ArtShowSearchRunStatus,
+  ArtWatchTerm
+} from "@/lib/types";
 
 type ArtWatchTermRow = {
   id: string;
@@ -30,6 +36,16 @@ type ArtShowLeadRow = {
   created_at: string;
   updated_at: string;
   reviewed_at: string | null;
+};
+
+type ArtShowSearchRunRow = {
+  id: string;
+  status: ArtShowSearchRunStatus;
+  artist_count: number;
+  result_count: number;
+  message: string | null;
+  started_at: string;
+  completed_at: string | null;
 };
 
 export type ArtShowWatchStorageState = {
@@ -105,6 +121,18 @@ function rowToLead(row: ArtShowLeadRow): ArtShowLead {
   };
 }
 
+function rowToSearchRun(row: ArtShowSearchRunRow): ArtShowSearchRun {
+  return {
+    id: row.id,
+    status: row.status,
+    artistCount: row.artist_count,
+    resultCount: row.result_count,
+    message: row.message ?? undefined,
+    startedAt: row.started_at,
+    completedAt: row.completed_at ?? undefined
+  };
+}
+
 export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageState> {
   const db = await getD1Database();
   if (!db) {
@@ -114,12 +142,21 @@ export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageSta
     };
   }
 
-  const row = await db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'art_watch_terms'")
-    .first<{ name: string }>()
+  const rows = await db
+    .prepare(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table'
+         AND name IN ('art_watch_terms', 'art_show_leads', 'art_show_search_runs')`
+    )
+    .all<{ name: string }>()
     .catch(() => null);
 
-  if (!row) {
+  const tableNames = new Set(rows?.results.map((row) => row.name) ?? []);
+  if (
+    !tableNames.has("art_watch_terms") ||
+    !tableNames.has("art_show_leads") ||
+    !tableNames.has("art_show_search_runs")
+  ) {
     return {
       ready: false,
       message:
@@ -292,6 +329,101 @@ export async function updateArtShowLeadStatus(id: string, status: ArtShowLeadSta
        WHERE id = ?3`
     )
     .bind(status, timestamp, id)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
+}
+
+export async function createArtShowSearchRun(artistCount: number): Promise<ArtShowSearchRun | null> {
+  const db = await getD1Database();
+  if (!db) return null;
+
+  const timestamp = nowIso();
+  const id = `art-show-${Date.now().toString(36)}`;
+  const result = await db
+    .prepare(
+      `INSERT INTO art_show_search_runs (
+        id, status, artist_count, result_count, message, started_at, completed_at
+      ) VALUES (?1, 'running', ?2, 0, ?3, ?4, NULL)`
+    )
+    .bind(id, artistCount, "Searching museum and major gallery show leads.", timestamp)
+    .run()
+    .catch(() => null);
+
+  if (!result) return null;
+
+  return {
+    id,
+    status: "running",
+    artistCount,
+    resultCount: 0,
+    message: "Searching museum and major gallery show leads.",
+    startedAt: timestamp
+  };
+}
+
+export async function getActiveArtShowSearchRun(): Promise<ArtShowSearchRun | null> {
+  const db = await getD1Database();
+  if (!db) return null;
+
+  const row = await db
+    .prepare(
+      `SELECT * FROM art_show_search_runs
+       WHERE status = 'running'
+       ORDER BY started_at DESC
+       LIMIT 1`
+    )
+    .first<ArtShowSearchRunRow>()
+    .catch(() => null);
+
+  return row ? rowToSearchRun(row) : null;
+}
+
+export async function getLatestArtShowSearchRun(): Promise<ArtShowSearchRun | null> {
+  const db = await getD1Database();
+  if (!db) return null;
+
+  const row = await db
+    .prepare(
+      `SELECT * FROM art_show_search_runs
+       ORDER BY started_at DESC
+       LIMIT 1`
+    )
+    .first<ArtShowSearchRunRow>()
+    .catch(() => null);
+
+  return row ? rowToSearchRun(row) : null;
+}
+
+export async function updateArtShowSearchRun(
+  id: string,
+  input: {
+    status: ArtShowSearchRunStatus;
+    resultCount?: number;
+    message?: string;
+  }
+) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const timestamp = nowIso();
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_runs
+       SET status = ?1,
+           result_count = ?2,
+           message = ?3,
+           completed_at = CASE WHEN ?1 = 'running' THEN completed_at ELSE ?4 END
+       WHERE id = ?5`
+    )
+    .bind(
+      input.status,
+      input.resultCount ?? 0,
+      input.message ?? null,
+      timestamp,
+      id
+    )
     .run()
     .catch(() => null);
 

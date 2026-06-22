@@ -260,3 +260,15 @@ export type ArtShowLead = {
   updatedAt: string;
   reviewedAt?: string;
 };
+
+export type ArtShowSearchRunStatus = "running" | "complete" | "error";
+
+export type ArtShowSearchRun = {
+  id: string;
+  status: ArtShowSearchRunStatus;
+  artistCount: number;
+  resultCount: number;
+  message?: string;
+  startedAt: string;
+  completedAt?: string;
+};
