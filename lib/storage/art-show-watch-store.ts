@@ -341,14 +341,47 @@ export async function listArtShowLeads(
   return rows.results.map(rowToLead);
 }
 
+function canonicalArtShowSourceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_|ref$|ref_src$)/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return value.trim().replace(/\/$/, "");
+  }
+}
+
+async function hiddenArtShowSourceUrlKeys() {
+  const db = await getD1Database();
+  if (!db) return new Set<string>();
+
+  const rows = await db
+    .prepare("SELECT source_url FROM art_show_leads WHERE status = 'hidden'")
+    .all<{ source_url: string }>()
+    .catch(() => ({ results: [] }));
+
+  return new Set(rows.results.map((row) => canonicalArtShowSourceUrl(row.source_url)));
+}
+
 export async function writeArtShowLeads(leads: ArtShowLeadInput[]) {
   const db = await getD1Database();
   if (!db || !leads.length) return false;
 
+  const hiddenSourceUrls = await hiddenArtShowSourceUrlKeys();
+  const visibleLeads = leads.filter(
+    (lead) => !hiddenSourceUrls.has(canonicalArtShowSourceUrl(lead.sourceUrl))
+  );
+  if (!visibleLeads.length) return true;
+
   const timestamp = nowIso();
   const result = await db
     .batch(
-      leads.map((lead) =>
+      visibleLeads.map((lead) =>
         db
           .prepare(
             `INSERT INTO art_show_leads (

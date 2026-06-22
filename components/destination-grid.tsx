@@ -178,6 +178,7 @@ type ArtShowsResponse = {
   message?: string;
   watchTerms: ArtWatchTerm[];
   leads: ArtShowLead[];
+  savedLeads?: ArtShowLead[];
   searchRun?: ArtShowSearchRun;
   searchProgress?: ArtShowSearchProgress;
 };
@@ -531,6 +532,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [artWatchTerms, setArtWatchTerms] = useState<ArtWatchTerm[]>([]);
   const [artWatchText, setArtWatchText] = useState("");
   const [artShowLeads, setArtShowLeads] = useState<ArtShowLead[]>([]);
+  const [savedArtShowLeads, setSavedArtShowLeads] = useState<ArtShowLead[]>([]);
   const [artShowSearchRun, setArtShowSearchRun] = useState<ArtShowSearchRun | undefined>();
   const [artShowSearchProgress, setArtShowSearchProgress] = useState<ArtShowSearchProgress | undefined>();
   const [artShowWatchOpen, setArtShowWatchOpen] = useState(false);
@@ -947,6 +949,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         setArtWatchTerms(data.watchTerms);
         setArtWatchText(watchTermsText(data.watchTerms));
         setArtShowLeads(data.leads);
+        setSavedArtShowLeads(data.savedLeads ?? []);
         setArtShowSearchRun(data.searchRun);
         setArtShowSearchProgress(data.searchProgress);
         if (data.searchRun?.status === "running") setArtShowWatchOpen(true);
@@ -989,6 +992,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           setArtWatchTerms(data.watchTerms);
           setArtWatchText(watchTermsText(data.watchTerms));
           setArtShowLeads(data.leads);
+          setSavedArtShowLeads(data.savedLeads ?? []);
           setArtShowSearchRun(data.searchRun);
           setArtShowSearchProgress(data.searchProgress);
           const pausedMessage =
@@ -1443,6 +1447,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setSavedArtShowLeads(data.savedLeads ?? []);
       setArtShowSearchRun(data.searchRun);
       setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
@@ -1483,6 +1488,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setSavedArtShowLeads(data.savedLeads ?? []);
       setArtShowSearchRun(data.searchRun);
       setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
@@ -1500,7 +1506,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
   const reviewArtShowLead = useCallback(async (id: string, status: "saved" | "hidden") => {
     setReviewingArtShowId(id);
-    setArtShowStatusMessage(status === "saved" ? "Saving show lead..." : "Hiding show lead...");
+    setArtShowStatusMessage(
+      status === "saved" ? "Saving show lead..." : "Removing show lead from active lists..."
+    );
 
     try {
       const response = await fetch("/api/art-shows", {
@@ -1513,6 +1521,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
+      setSavedArtShowLeads(data.savedLeads ?? []);
       setArtShowSearchRun(data.searchRun);
       setArtShowSearchProgress(data.searchProgress);
       setArtShowStatusMessage(
@@ -1650,6 +1659,78 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           }))
         }
       />
+    );
+  }
+
+  function renderArtShowLeadCard(lead: ArtShowLead, mode: "new" | "saved") {
+    return (
+      <article
+        key={lead.id}
+        className="rounded-md border border-ink/10 bg-white px-3 py-3 text-sm"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-harbor/72">
+              {lead.artist}
+            </p>
+            <h2 className="mt-1 text-sm font-semibold leading-5 text-ink">
+              {lead.title}
+            </h2>
+          </div>
+          <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
+            {lead.score}/10
+          </span>
+        </div>
+        <p className="mt-2 text-xs font-semibold leading-5 text-ink/58">
+          {showLeadLocation(lead)}
+        </p>
+        <p className="text-xs font-medium leading-5 text-ink/45">{lead.dateText}</p>
+        <p className="mt-2 text-xs leading-5 text-ink/64">{lead.summary}</p>
+        <p className="mt-1 text-xs leading-5 text-ink/48">{lead.travelReason}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <a
+            href={lead.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+          >
+            <ExternalLink size={13} aria-hidden="true" />
+            {lead.sourceName}
+          </a>
+          {mode === "new" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void reviewArtShowLead(lead.id, "saved")}
+                disabled={reviewingArtShowId === lead.id}
+                className="inline-flex items-center gap-1 rounded-md border border-harbor/18 bg-harbor/8 px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/12 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Bookmark size={13} aria-hidden="true" />
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => void reviewArtShowLead(lead.id, "hidden")}
+                disabled={reviewingArtShowId === lead.id}
+                className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
+              >
+                <X size={13} aria-hidden="true" />
+                Hide
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void reviewArtShowLead(lead.id, "hidden")}
+              disabled={reviewingArtShowId === lead.id}
+              className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
+            >
+              <X size={13} aria-hidden="true" />
+              Remove
+            </button>
+          )}
+        </div>
+      </article>
     );
   }
 
@@ -2101,62 +2182,35 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           ) : null}
 
           {artShowLeads.length ? (
-            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {artShowLeads.slice(0, 6).map((lead) => (
-                <article
-                  key={lead.id}
-                  className="rounded-md border border-ink/10 bg-white px-3 py-3 text-sm"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-harbor/72">
-                        {lead.artist}
-                      </p>
-                      <h2 className="mt-1 text-sm font-semibold leading-5 text-ink">
-                        {lead.title}
-                      </h2>
-                    </div>
-                    <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
-                      {lead.score}/10
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs font-semibold leading-5 text-ink/58">
-                    {showLeadLocation(lead)}
-                  </p>
-                  <p className="text-xs font-medium leading-5 text-ink/45">{lead.dateText}</p>
-                  <p className="mt-2 text-xs leading-5 text-ink/64">{lead.summary}</p>
-                  <p className="mt-1 text-xs leading-5 text-ink/48">{lead.travelReason}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <a
-                      href={lead.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
-                    >
-                      <ExternalLink size={13} aria-hidden="true" />
-                      {lead.sourceName}
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => void reviewArtShowLead(lead.id, "saved")}
-                      disabled={reviewingArtShowId === lead.id}
-                      className="inline-flex items-center gap-1 rounded-md border border-harbor/18 bg-harbor/8 px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/12 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      <Bookmark size={13} aria-hidden="true" />
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void reviewArtShowLead(lead.id, "hidden")}
-                      disabled={reviewingArtShowId === lead.id}
-                      className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      <X size={13} aria-hidden="true" />
-                      Hide
-                    </button>
-                  </div>
-                </article>
-              ))}
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink/42">
+                  New source leads
+                </h2>
+                <span className="text-[11px] font-medium text-ink/38">
+                  {artShowLeads.length} to review
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {artShowLeads.slice(0, 9).map((lead) => renderArtShowLeadCard(lead, "new"))}
+              </div>
+            </div>
+          ) : null}
+
+          {savedArtShowLeads.length ? (
+            <div className="mt-4 border-t border-ink/8 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink/42">
+                  Saved art shows
+                </h2>
+                <span className="text-[11px] font-medium text-ink/38">
+                  {savedArtShowLeads.length} saved lead
+                  {savedArtShowLeads.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {savedArtShowLeads.slice(0, 12).map((lead) => renderArtShowLeadCard(lead, "saved"))}
+              </div>
             </div>
           ) : null}
         </section>

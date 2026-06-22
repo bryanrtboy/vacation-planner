@@ -81,7 +81,8 @@ async function artShowsPayload(message?: string) {
       message: message ?? storageState.message,
       usage: await getUsageState(artShowUsageService),
       watchTerms: [],
-      leads: []
+      leads: [],
+      savedLeads: []
     };
   }
 
@@ -98,6 +99,7 @@ async function artShowsPayload(message?: string) {
     usage: await getUsageState(artShowUsageService),
     watchTerms: await listArtWatchTermsWithSeed(),
     leads: await listArtShowLeads("new"),
+    savedLeads: await listArtShowLeads("saved"),
     searchRun,
     searchProgress: await getArtShowSearchProgress(searchRun)
   };
@@ -270,6 +272,8 @@ export async function PATCH(request: Request) {
 
   await updateArtShowLeadStatus(body.id, body.status);
   return NextResponse.json(
-    await artShowsPayload(body.status === "hidden" ? "Show lead hidden." : "Show lead saved.")
+    await artShowsPayload(
+      body.status === "hidden" ? "Show lead removed from active lists." : "Show lead saved."
+    )
   );
 }
