@@ -1,8 +1,9 @@
 import { GEMINI_MODEL } from "@/lib/settings";
 import { getEnvValue } from "@/lib/storage/cloudflare";
-import type { DestinationSuggestion, TripPreferences } from "@/lib/types";
+import type { ArtShowLead, DestinationSuggestion, TripPreferences } from "@/lib/types";
 
 const geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models";
+const geminiInteractionsEndpoint = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
 export type SuggestDestinationsInput = {
   promptKind: DestinationSuggestion["promptKind"];
@@ -43,6 +44,41 @@ type GeminiResponse = {
   error?: {
     message?: string;
   };
+};
+
+type GeminiInteractionResponse = {
+  output_text?: string;
+  steps?: {
+    type?: string;
+    content?: {
+      type?: string;
+      text?: string;
+      annotations?: {
+        type?: string;
+        url?: string;
+        title?: string;
+      }[];
+    }[];
+  }[];
+  error?: {
+    message?: string;
+  };
+};
+
+type ArtShowLeadPayload = Omit<
+  ArtShowLead,
+  "id" | "status" | "rawResponseJson" | "model" | "createdAt" | "updatedAt" | "reviewedAt"
+>;
+
+const artSearchCanonicalTerms: Record<string, string> = {
+  "anselm keifer": "Anselm Kiefer",
+  "berthe morrisot": "Berthe Morisot",
+  manet: "Edouard Manet",
+  ingres: "Jean-Auguste-Dominique Ingres",
+  "francis alys": "Francis Alys OR Francis Alÿs",
+  raphael: "Raphael OR Raffaello Sanzio",
+  carravagio: "Caravaggio OR Michelangelo Merisi da Caravaggio",
+  caravaggio: "Caravaggio OR Michelangelo Merisi da Caravaggio"
 };
 
 function stripCodeFence(value: string) {
@@ -190,6 +226,154 @@ function parseSuggestions(text: string): SuggestedDestinationPayload[] {
     }));
 }
 
+function parseArtShowLeadJson(text: string) {
+  const stripped = stripCodeFence(text);
+
+  try {
+    return JSON.parse(stripped) as { leads?: ArtShowLeadPayload[] };
+  } catch {
+    const objectStart = stripped.indexOf("{");
+    const objectEnd = stripped.lastIndexOf("}");
+    if (objectStart >= 0 && objectEnd > objectStart) {
+      return JSON.parse(stripped.slice(objectStart, objectEnd + 1)) as {
+        leads?: ArtShowLeadPayload[];
+      };
+    }
+    return { leads: [] };
+  }
+}
+
+function parseOptionalIsoDate(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text || !/^\d{4}-\d{2}-\d{2}$/.test(text)) return undefined;
+  return text;
+}
+
+function normalizeArtShowLead(value: Partial<ArtShowLeadPayload>): ArtShowLeadPayload | null {
+  const sourceUrl = String(value.sourceUrl ?? "").trim();
+  const artist = String(value.artist ?? "").trim();
+  const title = String(value.title ?? "").trim();
+  const venue = String(value.venue ?? "").trim();
+  const city = String(value.city ?? "").trim();
+  const dateText = String(value.dateText ?? "").trim();
+  const sourceName = String(value.sourceName ?? "").trim();
+  const summary = String(value.summary ?? "").trim();
+  const travelReason = String(value.travelReason ?? "").trim();
+  const score = Math.round(Number(value.score));
+
+  if (
+    !artist ||
+    !title ||
+    !venue ||
+    !city ||
+    !dateText ||
+    !sourceUrl.startsWith("http") ||
+    !sourceName ||
+    !summary ||
+    !travelReason ||
+    !Number.isFinite(score)
+  ) {
+    return null;
+  }
+
+  if (score < 6) return null;
+
+  return {
+    artist: artist.slice(0, 120),
+    title: title.slice(0, 180),
+    venue: venue.slice(0, 160),
+    city: city.slice(0, 100),
+    country: value.country ? String(value.country).trim().slice(0, 100) : undefined,
+    startDate: parseOptionalIsoDate(value.startDate),
+    endDate: parseOptionalIsoDate(value.endDate),
+    dateText: dateText.slice(0, 160),
+    sourceUrl,
+    sourceName: sourceName.slice(0, 120),
+    summary: summary.slice(0, 360),
+    travelReason: travelReason.slice(0, 220),
+    score: Math.min(Math.max(score, 0), 10)
+  };
+}
+
+function canonicalArtSearchTerm(term: string) {
+  const normalized = term
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+  return artSearchCanonicalTerms[normalized] ?? term;
+}
+
+function artShowPrompt(artists: string[]) {
+  const searchTerms = artists.map((artist) => canonicalArtSearchTerm(artist));
+
+  return `Find up to 5 travel-worthy upcoming, currently open, recently opened, or formally announced museum or major gallery exhibitions for this watchlist:
+${searchTerms.map((artist) => `- ${artist}`).join("\n")}
+
+Use Google Search. Return only JSON with a top-level "leads" array.
+
+Keep only high-confidence exhibition leads:
+- Must have an official museum/gallery/foundation source or reputable arts publication source.
+- Must have a show title, venue, city, and source URL.
+- Must have explicit dates or clear date text such as "dates to be announced".
+- Prefer solo exhibitions, retrospectives, major two-artist shows, and major museum/foundation group shows where the watched artist is central.
+- Weed out permanent collection pages, auction listings, commercial inventory pages, old closed shows, artist bios, generic collection pages, and minor mentions where one artwork is incidental.
+- Do not include more than one lead for the same exhibition.
+- Score 1 to 10 for travel-worthiness. Only include leads with score 6 or higher.
+- If a watchlist term is a shortened, misspelled, unaccented, or alternate artist name, use the best-known canonical spelling for search and matching.
+- In the "artist" field, return the clean display name most people would recognize.
+
+JSON shape:
+{
+  "leads": [
+    {
+      "artist": "Matched artist or movement",
+      "title": "Exhibition title",
+      "venue": "Museum or gallery",
+      "city": "City",
+      "country": "Country",
+      "startDate": "YYYY-MM-DD if known",
+      "endDate": "YYYY-MM-DD if known",
+      "dateText": "Human-readable dates",
+      "sourceUrl": "https://...",
+      "sourceName": "Source name",
+      "summary": "One concise sentence about the exhibition.",
+      "travelReason": "One concise reason this could anchor a trip.",
+      "score": 8
+    }
+  ]
+}`;
+}
+
+function compactHash(value: string) {
+  let hash = 5381;
+  for (const char of value) {
+    hash = (hash * 33) ^ char.charCodeAt(0);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function leadId(lead: ArtShowLeadPayload) {
+  return compactHash(
+    [lead.artist, lead.title, lead.venue, lead.city, lead.sourceUrl].join("|").toLowerCase()
+  );
+}
+
+function interactionOutputText(data: GeminiInteractionResponse) {
+  if (data.output_text) return data.output_text;
+
+  return (
+    data.steps
+      ?.flatMap((step) => step.content ?? [])
+      .filter((content) => content.type === "text")
+      .map((content) => content.text ?? "")
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
 function promptForSuggestions(input: SuggestDestinationsInput) {
   return `Suggest exactly 3 travel destination ideas for a personal art-and-slow-travel planner.
 
@@ -307,5 +491,59 @@ export async function suggestDestinationsWithGemini(input: SuggestDestinationsIn
     model: GEMINI_MODEL,
     rawResponseJson: JSON.stringify(data),
     suggestions
+  };
+}
+
+export async function findArtShowsWithGemini(artists: string[]) {
+  const apiKey = await getEnvValue("GEMINI_API_KEY");
+  if (!apiKey) {
+    throw new Error("Gemini API key is not configured.");
+  }
+
+  const watchedArtists = artists.map((artist) => artist.trim()).filter(Boolean).slice(0, 40);
+  if (!watchedArtists.length) {
+    return { model: GEMINI_MODEL, rawResponseJson: "", leads: [] };
+  }
+
+  const response = await fetch(geminiInteractionsEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Api-Revision": "2026-05-20",
+      "x-goog-api-key": apiKey
+    },
+    body: JSON.stringify({
+      model: GEMINI_MODEL,
+      input: artShowPrompt(watchedArtists),
+      tools: [{ type: "google_search" }]
+    })
+  });
+
+  const data = (await response.json().catch(() => ({}))) as GeminiInteractionResponse;
+  if (!response.ok) {
+    throw new Error(data.error?.message ?? `Gemini returned ${response.status}.`);
+  }
+
+  const text = interactionOutputText(data);
+  const parsed = parseArtShowLeadJson(text);
+  const rawResponseJson = JSON.stringify(data);
+  const leads = Array.isArray(parsed.leads)
+    ? parsed.leads
+        .map(normalizeArtShowLead)
+        .filter((lead): lead is ArtShowLeadPayload => Boolean(lead))
+        .slice(0, 5)
+        .map((lead) => ({
+          id: leadId(lead),
+          status: "new" as const,
+          ...lead,
+          rawResponseJson,
+          model: GEMINI_MODEL
+        }))
+    : [];
+
+  return {
+    model: GEMINI_MODEL,
+    rawResponseJson,
+    leads
   };
 }

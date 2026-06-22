@@ -227,3 +227,36 @@ export type DestinationSuggestion = {
   updatedAt: string;
   reviewedAt?: string;
 };
+
+export type ArtWatchTerm = {
+  id: string;
+  label: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ArtShowLeadStatus = "new" | "saved" | "hidden";
+
+export type ArtShowLead = {
+  id: string;
+  status: ArtShowLeadStatus;
+  artist: string;
+  title: string;
+  venue: string;
+  city: string;
+  country?: string;
+  startDate?: string;
+  endDate?: string;
+  dateText: string;
+  sourceUrl: string;
+  sourceName: string;
+  summary: string;
+  travelReason: string;
+  score: number;
+  rawResponseJson?: string;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
+};

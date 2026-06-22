@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BedDouble,
+  Bookmark,
   CalendarDays,
   Car,
   ChevronDown,
+  ExternalLink,
   MapPin,
   Palette,
   Plane,
+  Search,
   SlidersHorizontal,
   Sparkles,
+  X,
   Users
 } from "lucide-react";
 import { DestinationCard } from "@/components/destination-card";
@@ -31,6 +35,8 @@ import {
   writeTripPreferences
 } from "@/lib/trip-preferences";
 import type {
+  ArtShowLead,
+  ArtWatchTerm,
   Destination,
   DestinationSuggestion,
   SavedSearchSummary,
@@ -161,6 +167,14 @@ type SuggestionResponse = {
   suggestions: DestinationSuggestion[];
   message?: string;
   storageReady?: boolean;
+};
+
+type ArtShowsResponse = {
+  usage: UsageState;
+  storageReady?: boolean;
+  message?: string;
+  watchTerms: ArtWatchTerm[];
+  leads: ArtShowLead[];
 };
 
 type DestinationScenarioResponse = {
@@ -382,6 +396,17 @@ function normalizeNights(value: unknown) {
   return Math.min(Math.max(Math.round(parsed), 1), 60);
 }
 
+function watchTermsText(terms: ArtWatchTerm[]) {
+  return terms
+    .filter((term) => term.active)
+    .map((term) => term.label)
+    .join("\n");
+}
+
+function showLeadLocation(lead: ArtShowLead) {
+  return [lead.venue, lead.city, lead.country].filter(Boolean).join(" · ");
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -454,6 +479,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingUsage, setLodgingUsage] = useState<UsageState | null>(null);
   const [aiUsage, setAiUsage] = useState<UsageState | null>(null);
   const [suggestions, setSuggestions] = useState<DestinationSuggestion[]>([]);
+  const [artWatchTerms, setArtWatchTerms] = useState<ArtWatchTerm[]>([]);
+  const [artWatchText, setArtWatchText] = useState("");
+  const [artShowLeads, setArtShowLeads] = useState<ArtShowLead[]>([]);
+  const [artShowWatchOpen, setArtShowWatchOpen] = useState(false);
+  const [artWatchEditing, setArtWatchEditing] = useState(false);
+  const [searchingArtShows, setSearchingArtShows] = useState(false);
+  const [savingArtWatch, setSavingArtWatch] = useState(false);
+  const [reviewingArtShowId, setReviewingArtShowId] = useState<string | null>(null);
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
   const [focusedSavedSearch, setFocusedSavedSearch] = useState<SavedSearchSummary | null>(null);
   const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
@@ -468,6 +501,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [statusMessage, setStatusMessage] = useState("");
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
+  const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -827,6 +861,32 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
 
     void hydrateSuggestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateArtShows() {
+      try {
+        const response = await fetch("/api/art-shows");
+        if (!response.ok) return;
+        const data = (await response.json()) as ArtShowsResponse;
+        if (cancelled) return;
+        setAiUsage(data.usage);
+        setArtWatchTerms(data.watchTerms);
+        setArtWatchText(watchTermsText(data.watchTerms));
+        setArtShowLeads(data.leads);
+        if (data.message) setArtShowStatusMessage(data.message);
+      } catch {
+        // Art show watch is optional; destination browsing still works without it.
+      }
+    }
+
+    void hydrateArtShows();
 
     return () => {
       cancelled = true;
@@ -1238,6 +1298,78 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
   }, [generatorRegion, preferences]);
 
+  const saveArtWatchTerms = useCallback(async () => {
+    setSavingArtWatch(true);
+    setArtShowStatusMessage("Saving art show watchlist...");
+
+    try {
+      const response = await fetch("/api/art-shows", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: artWatchText })
+      });
+      const data = (await response.json()) as ArtShowsResponse;
+      setAiUsage(data.usage);
+      setArtWatchTerms(data.watchTerms);
+      setArtWatchText(watchTermsText(data.watchTerms));
+      setArtShowLeads(data.leads);
+      setArtShowStatusMessage(
+        data.message ?? (response.ok ? "Art show watchlist saved." : "Unable to save watchlist.")
+      );
+      if (response.ok) setArtWatchEditing(false);
+    } catch {
+      setArtShowStatusMessage("Unable to save the art show watchlist right now.");
+    } finally {
+      setSavingArtWatch(false);
+    }
+  }, [artWatchText]);
+
+  const findArtShows = useCallback(async () => {
+    setSearchingArtShows(true);
+    setArtShowStatusMessage("Searching museum and major gallery show leads...");
+
+    try {
+      const response = await fetch("/api/art-shows", { method: "POST" });
+      const data = (await response.json()) as ArtShowsResponse;
+      setAiUsage(data.usage);
+      setArtWatchTerms(data.watchTerms);
+      setArtWatchText(watchTermsText(data.watchTerms));
+      setArtShowLeads(data.leads);
+      setArtShowStatusMessage(
+        data.message ?? (response.ok ? "Art show search complete." : "Unable to search shows.")
+      );
+    } catch {
+      setArtShowStatusMessage("Unable to search art shows right now.");
+    } finally {
+      setSearchingArtShows(false);
+    }
+  }, []);
+
+  const reviewArtShowLead = useCallback(async (id: string, status: "saved" | "hidden") => {
+    setReviewingArtShowId(id);
+    setArtShowStatusMessage(status === "saved" ? "Saving show lead..." : "Hiding show lead...");
+
+    try {
+      const response = await fetch("/api/art-shows", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status })
+      });
+      const data = (await response.json()) as ArtShowsResponse;
+      setAiUsage(data.usage);
+      setArtWatchTerms(data.watchTerms);
+      setArtWatchText(watchTermsText(data.watchTerms));
+      setArtShowLeads(data.leads);
+      setArtShowStatusMessage(
+        data.message ?? (response.ok ? "Show lead updated." : "Unable to update show lead.")
+      );
+    } catch {
+      setArtShowStatusMessage("Unable to update the show lead right now.");
+    } finally {
+      setReviewingArtShowId(null);
+    }
+  }, []);
+
   const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
     setReviewingSuggestionId(id);
     setSuggestionStatusMessage(action === "accept" ? "Adding destination idea..." : "Rejecting suggestion...");
@@ -1625,9 +1757,158 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               />
               {suggestingDestinations ? "Suggesting..." : "Suggest ideas"}
             </button>
+            <button
+              type="button"
+              onClick={() => setArtShowWatchOpen((current) => !current)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/24 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/16"
+              aria-expanded={artShowWatchOpen}
+            >
+              <Search size={14} aria-hidden="true" />
+              Art Show Watch
+            </button>
           </div>
         </div>
       </div>
+
+      {artShowWatchOpen ? (
+        <section className="mb-3 rounded-md border border-ink/8 bg-white/65 px-3 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/38">
+                <Search size={14} className="text-harbor/70" aria-hidden="true" />
+                Art Show Watch
+              </p>
+              <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-ink/52">
+                Searches the shared D1 watchlist for sourced, travel-worthy museum and major gallery shows.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setArtWatchEditing((current) => !current)}
+                className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+              >
+                {artWatchEditing ? "Close list" : "Edit list"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void findArtShows()}
+                disabled={searchingArtShows || aiUsage?.remaining === 0}
+                className="inline-flex items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
+              >
+                <Search
+                  size={13}
+                  className={searchingArtShows ? "animate-spin" : ""}
+                  aria-hidden="true"
+                />
+                {searchingArtShows ? "Searching..." : "Find shows"}
+              </button>
+            </div>
+          </div>
+
+          {artWatchEditing ? (
+            <div className="mt-3 grid gap-2">
+              <textarea
+                value={artWatchText}
+                onChange={(event) => setArtWatchText(event.target.value)}
+                rows={8}
+                className="w-full rounded-md border border-ink/12 bg-white px-3 py-2 text-sm font-medium leading-6 text-ink outline-none transition focus:border-harbor/45"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-ink/45">
+                  One artist, movement, or search phrase per line. Saved to the shared D1 watchlist.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void saveArtWatchTerms()}
+                  disabled={savingArtWatch}
+                  className="rounded-md border border-harbor/25 bg-white px-3 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/8 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {savingArtWatch ? "Saving..." : "Save list"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {artWatchTerms
+                .filter((term) => term.active)
+                .slice(0, 18)
+                .map((term) => (
+                  <span
+                    key={term.id}
+                    className="rounded-md border border-harbor/15 bg-harbor/10 px-2 py-1 text-[11px] font-semibold text-harbor"
+                  >
+                    {term.label}
+                  </span>
+                ))}
+            </div>
+          )}
+
+          {artShowStatusMessage ? (
+            <p className="mt-3 text-xs font-medium text-ink/54">{artShowStatusMessage}</p>
+          ) : null}
+
+          {artShowLeads.length ? (
+            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {artShowLeads.slice(0, 6).map((lead) => (
+                <article
+                  key={lead.id}
+                  className="rounded-md border border-ink/10 bg-white px-3 py-3 text-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-harbor/72">
+                        {lead.artist}
+                      </p>
+                      <h2 className="mt-1 text-sm font-semibold leading-5 text-ink">
+                        {lead.title}
+                      </h2>
+                    </div>
+                    <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
+                      {lead.score}/10
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-semibold leading-5 text-ink/58">
+                    {showLeadLocation(lead)}
+                  </p>
+                  <p className="text-xs font-medium leading-5 text-ink/45">{lead.dateText}</p>
+                  <p className="mt-2 text-xs leading-5 text-ink/64">{lead.summary}</p>
+                  <p className="mt-1 text-xs leading-5 text-ink/48">{lead.travelReason}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <a
+                      href={lead.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+                    >
+                      <ExternalLink size={13} aria-hidden="true" />
+                      {lead.sourceName}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void reviewArtShowLead(lead.id, "saved")}
+                      disabled={reviewingArtShowId === lead.id}
+                      className="inline-flex items-center gap-1 rounded-md border border-harbor/18 bg-harbor/8 px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/12 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <Bookmark size={13} aria-hidden="true" />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void reviewArtShowLead(lead.id, "hidden")}
+                      disabled={reviewingArtShowId === lead.id}
+                      className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <X size={13} aria-hidden="true" />
+                      Hide
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {suggestions.length || suggestionStatusMessage ? (
         <div className="mb-3 rounded-md border border-ink/8 bg-white/60 px-3 py-3">
