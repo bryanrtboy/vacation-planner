@@ -30,6 +30,7 @@ export const runtime = "nodejs";
 
 const aiUsageService = "ai";
 const artShowSearchTimeoutMs = 1000 * 60 * 2;
+const artShowSearchFreshDays = 30;
 
 function labelsFromText(value: string) {
   return value
@@ -37,6 +38,10 @@ function labelsFromText(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 80);
+}
+
+function artWatchTermIsDue(term: { active: boolean; lastSearchedAt?: string }, cutoffIso: string) {
+  return term.active && (!term.lastSearchedAt || term.lastSearchedAt < cutoffIso);
 }
 
 function artShowSearchErrorMessage(error: unknown) {
@@ -200,15 +205,27 @@ export async function POST() {
   }
 
   const watchTerms = await listArtWatchTermsWithSeed();
-  const artists = watchTerms.filter((term) => term.active).map((term) => term.label);
+  const freshCutoff = new Date(
+    Date.now() - 1000 * 60 * 60 * 24 * artShowSearchFreshDays
+  ).toISOString();
+  const dueTerms = watchTerms.filter((term) => artWatchTermIsDue(term, freshCutoff));
+  const artists = dueTerms.map((term) => term.label);
 
-  if (!artists.length) {
+  if (!watchTerms.some((term) => term.active)) {
     return NextResponse.json(await artShowsPayload("Add artists before searching shows."), {
       status: 400
     });
   }
 
-  const run = await createArtShowSearchRun(watchTerms);
+  if (!artists.length) {
+    return NextResponse.json(
+      await artShowsPayload(
+        `All active watchlist names have completed a show search in the last ${artShowSearchFreshDays} days.`
+      )
+    );
+  }
+
+  const run = await createArtShowSearchRun(dueTerms);
   if (!run) {
     return NextResponse.json(
       {

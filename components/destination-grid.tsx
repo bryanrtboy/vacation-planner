@@ -1895,7 +1895,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 Searches the shared D1 watchlist for sourced, travel-worthy museum and major gallery shows.
               </p>
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
-                Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead.
+                Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for 30 days.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2020,7 +2020,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 {artShowSearchProgress.errorBatches
                   ? ` · ${artShowSearchProgress.errorBatches} batch${
                       artShowSearchProgress.errorBatches === 1 ? "" : "es"
-                    } need retry`
+                    } can retry later`
                   : ""}
               </p>
             </div>

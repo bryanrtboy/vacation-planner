@@ -651,10 +651,8 @@ export async function claimNextArtShowSearchBatch(
     .prepare(
       `SELECT * FROM art_show_search_batches
        WHERE run_id = ?1
-         AND status IN ('pending', 'error')
-       ORDER BY
-         CASE status WHEN 'pending' THEN 0 ELSE 1 END,
-         id ASC
+         AND status = 'pending'
+       ORDER BY id ASC
        LIMIT 1`
     )
     .bind(runId)
@@ -673,7 +671,7 @@ export async function claimNextArtShowSearchBatch(
            message = NULL,
            attempt_count = attempt_count + 1
        WHERE id = ?2
-         AND status IN ('pending', 'error')`
+         AND status = 'pending'`
     )
     .bind(timestamp, row.id)
     .run()
@@ -745,9 +743,9 @@ export async function summarizeArtShowSearchRun(runId: string) {
   return updateArtShowSearchRun(runId, {
     status: errorCount === batches.length ? "error" : "complete",
     resultCount,
-    message:
+      message:
       errorCount > 0
-        ? `Finished with ${errorCount} timed-out batch${errorCount === 1 ? "" : "es"}. Retry will continue with remaining names.`
+        ? `Finished with ${errorCount} timed-out batch${errorCount === 1 ? "" : "es"}. Start a new sweep later to continue remaining names.`
         : `Saved ${resultCount} sourced show lead${resultCount === 1 ? "" : "s"}.`
   });
 }
