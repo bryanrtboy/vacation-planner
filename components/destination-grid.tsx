@@ -57,6 +57,7 @@ const allTravelFilter = "all";
 const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
+const artShowSourceSearchIntervalMs = 1000 * 5;
 const usRegionNames = new Set([
   "alabama",
   "alaska",
@@ -435,7 +436,7 @@ function artShowProgressMessage(run?: ArtShowSearchRun, progress?: ArtShowSearch
 
 function artShowPausedMessage(run?: ArtShowSearchRun, progress?: ArtShowSearchProgress) {
   if (!run || run.status !== "running") return artShowRunMessage(run);
-  if (!progress?.totalBatches) return "Art show sweep is paused. Click Resume search to continue.";
+  if (!progress?.totalBatches) return "Art show sweep is paused. Click Resume sweep to continue.";
 
   return [
     "Art show sweep is paused.",
@@ -443,10 +444,15 @@ function artShowPausedMessage(run?: ArtShowSearchRun, progress?: ArtShowSearchPr
     progress.errorBatches
       ? `${progress.errorBatches} batch${progress.errorBatches === 1 ? "" : "es"} can retry later`
       : undefined,
-    "Click Resume search to continue."
+    "Click Resume sweep to continue."
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function artShowProviderErrorShouldPause(message?: string) {
+  if (!message) return false;
+  return /\b(quota|rate limit|timed out|timeout|unavailable|not configured)\b/i.test(message);
 }
 
 function readStoredSnapshots(): StoredFareSnapshots {
@@ -966,8 +972,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     if (!artShowSearchRunning) return;
 
     let cancelled = false;
+    let timeoutId: number | undefined;
 
-    async function processOneBatch() {
+    async function processBatchAndScheduleNext() {
+      let shouldContinue = false;
       try {
         const response = await fetch("/api/art-shows", {
           method: "PATCH",
@@ -988,18 +996,30 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               ? artShowPausedMessage(data.searchRun, data.searchProgress)
               : artShowProgressMessage(data.searchRun, data.searchProgress);
           setArtShowStatusMessage([data.message, pausedMessage].filter(Boolean).join(" "));
+          shouldContinue =
+            data.searchRun?.status === "running" &&
+            !artShowProviderErrorShouldPause(data.message);
         }
       } catch {
         setArtShowStatusMessage("Unable to process this art show batch right now.");
       } finally {
-        if (!cancelled) setProcessingArtShowBatches(false);
+        if (cancelled) return;
+        if (shouldContinue) {
+          timeoutId = window.setTimeout(
+            processBatchAndScheduleNext,
+            artShowSourceSearchIntervalMs
+          );
+        } else {
+          setProcessingArtShowBatches(false);
+        }
       }
     }
 
-    void processOneBatch();
+    void processBatchAndScheduleNext();
 
     return () => {
       cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, [artShowSearchRunning]);
 
@@ -1448,7 +1468,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       setProcessingArtShowBatches(true);
       setArtShowStatusMessage(
         artShowProgressMessage(artShowSearchRun, artShowSearchProgress) ||
-          "Resuming art show search..."
+          "Resuming art show source sweep..."
       );
       return;
     }
@@ -1920,7 +1940,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for 30 days.
               </p>
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
-                Cost guard: controlled Google source searches through SerpAPI. Gemini search grounding is not used.
+                Cost guard: controlled Google source searches through SerpAPI, spaced a few seconds apart. Gemini search grounding is not used.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1952,7 +1972,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 {searchingArtShows || artShowSearchRunning
                   ? "Searching..."
                   : artShowRunActive
-                    ? "Resume search"
+                    ? "Resume sweep"
                     : "Find shows"}
               </button>
             </div>
