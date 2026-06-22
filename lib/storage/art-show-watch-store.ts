@@ -144,6 +144,21 @@ function rowToLead(row: ArtShowLeadRow): ArtShowLead {
   };
 }
 
+function artShowLeadResultDateYear(value: string | undefined) {
+  if (!value) return null;
+  const yearMatch = value.match(/\b(19|20)\d{2}\b/);
+  if (!yearMatch) return null;
+
+  const year = Number(yearMatch[0]);
+  return Number.isFinite(year) ? year : null;
+}
+
+function artShowLeadHasOldSerpApiPostDate(lead: ArtShowLead) {
+  if (lead.model !== "serpapi-google-organic") return false;
+  const year = artShowLeadResultDateYear(lead.dateText);
+  return typeof year === "number" && year < 2023;
+}
+
 function rowToSearchRun(row: ArtShowSearchRunRow): ArtShowSearchRun {
   return {
     id: row.id,
@@ -359,7 +374,7 @@ export async function listArtShowLeads(
     .all<ArtShowLeadRow>()
     .catch(() => ({ results: [] }));
 
-  return rows.results.map(rowToLead);
+  return rows.results.map(rowToLead).filter((lead) => !artShowLeadHasOldSerpApiPostDate(lead));
 }
 
 function canonicalArtShowSourceUrl(value: string) {

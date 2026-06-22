@@ -1666,18 +1666,30 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return (
       <article
         key={lead.id}
-        className="rounded-md border border-ink/10 bg-white px-3 py-3 text-sm"
+        className={`rounded-md border px-3 py-3 text-sm ${
+          mode === "saved"
+            ? "border-[#d29a36]/22 bg-[#fffaf0]"
+            : "border-ink/10 bg-white"
+        }`}
       >
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-harbor/72">
+            <p
+              className={`text-xs font-semibold uppercase tracking-wide ${
+                mode === "saved" ? "text-[#8a5a12]/72" : "text-harbor/72"
+              }`}
+            >
               {lead.artist}
             </p>
             <h2 className="mt-1 text-sm font-semibold leading-5 text-ink">
               {lead.title}
             </h2>
           </div>
-          <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
+          <span
+            className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+              mode === "saved" ? "bg-[#d29a36]/10 text-[#8a5a12]/62" : "bg-ink/6 text-ink/48"
+            }`}
+          >
             {lead.score}/10
           </span>
         </div>
@@ -1723,7 +1735,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               type="button"
               onClick={() => void reviewArtShowLead(lead.id, "hidden")}
               disabled={reviewingArtShowId === lead.id}
-              className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-[#d29a36]/24 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#8a5a12]/72 transition hover:border-[#d29a36]/42 hover:text-[#6f470b] disabled:cursor-wait disabled:opacity-60"
             >
               <X size={13} aria-hidden="true" />
               Remove
@@ -2198,12 +2210,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           ) : null}
 
           {savedArtShowLeads.length ? (
-            <div className="mt-4 border-t border-ink/8 pt-3">
+            <div className="mt-4 rounded-md border border-[#d29a36]/18 bg-[#fff6e6] px-3 py-3">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink/42">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-[#8a5a12]/76">
                   Saved art shows
                 </h2>
-                <span className="text-[11px] font-medium text-ink/38">
+                <span className="rounded-md bg-white/70 px-2 py-1 text-[11px] font-semibold text-[#8a5a12]/60">
                   {savedArtShowLeads.length} saved lead
                   {savedArtShowLeads.length === 1 ? "" : "s"}
                 </span>

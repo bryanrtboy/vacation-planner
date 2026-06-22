@@ -3,6 +3,7 @@ import type { ArtShowLead } from "@/lib/types";
 
 const serpApiEndpoint = "https://serpapi.com/search";
 const artShowSearchTimeoutMs = 1000 * 25;
+const oldestUsefulResultYear = 2023;
 
 type SerpApiOrganicResult = {
   position?: number;
@@ -112,12 +113,27 @@ function scoreResult(value: string, position: number) {
   return Math.max(1, Math.min(score, 9));
 }
 
+function resultDateYear(value: string | undefined) {
+  if (!value) return null;
+  const yearMatch = value.match(/\b(19|20)\d{2}\b/);
+  if (!yearMatch) return null;
+
+  const year = Number(yearMatch[0]);
+  return Number.isFinite(year) ? year : null;
+}
+
+function resultHasOldPostDate(value: string | undefined) {
+  const year = resultDateYear(value);
+  return typeof year === "number" && year < oldestUsefulResultYear;
+}
+
 function normalizeOrganicResult(
   result: SerpApiOrganicResult,
   artists: string[],
   query: string
 ): ArtShowLeadPayload | null {
   if (!result.link || !result.title) return null;
+  if (resultHasOldPostDate(result.date)) return null;
 
   const text = [result.title, result.snippet, result.source, result.displayed_link].filter(Boolean).join(" ");
   if (weakSourcePattern.test(text) || !exhibitionPattern.test(text)) return null;
