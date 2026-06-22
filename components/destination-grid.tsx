@@ -58,7 +58,6 @@ const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
 const artShowPollIntervalMs = 1000 * 10;
-const artShowUiPollLimitMs = 1000 * 60 * 3;
 const usRegionNames = new Set([
   "alabama",
   "alaska",
@@ -435,11 +434,6 @@ function artShowProgressMessage(run?: ArtShowSearchRun, progress?: ArtShowSearch
     .join(" · ");
 }
 
-function artShowRunIsPastUiLimit(run?: ArtShowSearchRun) {
-  if (!run || run.status !== "running") return false;
-  return Date.now() - new Date(run.startedAt).getTime() > artShowUiPollLimitMs;
-}
-
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -538,12 +532,8 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
-  const artShowSearchPastUiLimit = artShowRunIsPastUiLimit(artShowSearchRun);
-  const artShowSearchRunning =
-    artShowSearchRun?.status === "running" && !artShowSearchPastUiLimit;
-  const displayedArtShowStatusMessage = artShowSearchPastUiLimit
-    ? "Art show search took too long and stopped polling. Reload Art Show Watch to check whether Cloudflare finished it."
-    : artShowStatusMessage;
+  const artShowSearchRunning = artShowSearchRun?.status === "running";
+  const displayedArtShowStatusMessage = artShowStatusMessage;
   const activeArtWatchTerms = artWatchTerms.filter((term) => term.active);
   const visibleArtWatchTerms = artWatchListExpanded
     ? activeArtWatchTerms
@@ -955,6 +945,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     let timeoutId: number | undefined;
 
     async function processBatchAndScheduleNext() {
+      let shouldContinue = true;
       try {
         const response = await fetch("/api/art-shows", {
           method: "PATCH",
@@ -973,11 +964,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           setArtShowStatusMessage(
             data.message ?? artShowProgressMessage(data.searchRun, data.searchProgress)
           );
+          shouldContinue = data.searchRun?.status === "running";
         }
       } catch {
         // Keep the current running state visible; the next attempt can recover.
       } finally {
-        if (!cancelled) {
+        if (!cancelled && shouldContinue) {
           timeoutId = window.setTimeout(processBatchAndScheduleNext, artShowPollIntervalMs);
         }
       }

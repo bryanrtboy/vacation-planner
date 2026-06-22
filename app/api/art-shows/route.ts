@@ -60,7 +60,7 @@ function artShowSearchErrorMessage(error: unknown) {
   }
 
   if (normalized.includes("abort") || normalized.includes("timeout")) {
-    return "Art show search timed out before Gemini returned sourced leads. Try again later or search after trimming the watchlist.";
+    return "Art show search timed out before Gemini returned sourced leads. This batch can retry in a future sweep.";
   }
 
   return message;

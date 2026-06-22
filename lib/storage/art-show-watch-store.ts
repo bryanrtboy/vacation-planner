@@ -618,8 +618,7 @@ export async function listArtShowSearchBatches(runId: string): Promise<ArtShowSe
 export function progressFromBatches(batches: ArtShowSearchBatch[]): ArtShowSearchProgress {
   const currentBatch =
     batches.find((batch) => batch.status === "running") ??
-    batches.find((batch) => batch.status === "pending") ??
-    batches.find((batch) => batch.status === "error");
+    batches.find((batch) => batch.status === "pending");
 
   return {
     totalBatches: batches.length,
@@ -628,7 +627,7 @@ export function progressFromBatches(batches: ArtShowSearchBatch[]): ArtShowSearc
     runningBatches: batches.filter((batch) => batch.status === "running").length,
     errorBatches: batches.filter((batch) => batch.status === "error").length,
     remainingTerms: batches
-      .filter((batch) => batch.status !== "complete")
+      .filter((batch) => batch.status === "pending" || batch.status === "running")
       .reduce((total, batch) => total + batch.termLabels.length, 0),
     currentBatch
   };
