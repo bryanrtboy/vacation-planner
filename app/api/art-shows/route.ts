@@ -4,11 +4,11 @@ import { findArtShowsWithGemini } from "@/lib/ai/gemini";
 import {
   artShowWatchStorageState,
   createArtShowSearchRun,
-  ensureSeedArtWatchTerms,
+  expireStaleArtShowSearchRuns,
   getActiveArtShowSearchRun,
   getLatestArtShowSearchRun,
   listArtShowLeads,
-  listArtWatchTerms,
+  listArtWatchTermsWithSeed,
   markActiveArtWatchTermsSearched,
   replaceArtWatchTerms,
   updateArtShowSearchRun,
@@ -25,6 +25,7 @@ import type { ArtShowLeadStatus } from "@/lib/types";
 export const runtime = "nodejs";
 
 const aiUsageService = "ai";
+const artShowSearchTimeoutMs = 1000 * 60 * 2;
 
 function labelsFromText(value: string) {
   return value
@@ -49,6 +50,10 @@ function artShowSearchErrorMessage(error: unknown) {
     return "Gemini API key is missing or unavailable in Cloudflare. Add GEMINI_API_KEY as a Cloudflare secret before searching shows.";
   }
 
+  if (normalized.includes("abort") || normalized.includes("timeout")) {
+    return "Art show search timed out before Gemini returned sourced leads. Try again later or search after trimming the watchlist.";
+  }
+
   return message;
 }
 
@@ -64,13 +69,15 @@ async function artShowsPayload(message?: string) {
     };
   }
 
-  await ensureSeedArtWatchTerms();
+  await expireStaleArtShowSearchRuns(
+    new Date(Date.now() - artShowSearchTimeoutMs).toISOString()
+  );
 
   return {
     storageReady: true,
     message,
     usage: await getUsageState(aiUsageService),
-    watchTerms: await listArtWatchTerms(),
+    watchTerms: await listArtWatchTermsWithSeed(),
     leads: await listArtShowLeads("new"),
     searchRun: (await getActiveArtShowSearchRun()) ?? (await getLatestArtShowSearchRun())
   };
@@ -150,13 +157,15 @@ export async function POST() {
     return NextResponse.json(await artShowsPayload(storageState.message), { status: 503 });
   }
 
-  await ensureSeedArtWatchTerms();
+  await expireStaleArtShowSearchRuns(
+    new Date(Date.now() - artShowSearchTimeoutMs).toISOString()
+  );
   const activeRun = await getActiveArtShowSearchRun();
   if (activeRun) {
     return NextResponse.json(await artShowsPayload("Art show search is already running."));
   }
 
-  const artists = (await listArtWatchTerms()).filter((term) => term.active).map((term) => term.label);
+  const artists = (await listArtWatchTermsWithSeed()).filter((term) => term.active).map((term) => term.label);
 
   if (!artists.length) {
     return NextResponse.json(await artShowsPayload("Add artists before searching shows."), {

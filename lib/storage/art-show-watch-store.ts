@@ -206,6 +206,15 @@ export async function ensureSeedArtWatchTerms() {
   return Boolean(result);
 }
 
+export async function listArtWatchTermsWithSeed(): Promise<ArtWatchTerm[]> {
+  let terms = await listArtWatchTerms();
+  if (!terms.length) {
+    await ensureSeedArtWatchTerms();
+    terms = await listArtWatchTerms();
+  }
+  return terms;
+}
+
 export async function replaceArtWatchTerms(labels: string[]) {
   const db = await getD1Database();
   if (!db) return false;
@@ -397,6 +406,27 @@ export async function getActiveArtShowSearchRun(): Promise<ArtShowSearchRun | nu
     .catch(() => null);
 
   return row ? rowToSearchRun(row) : null;
+}
+
+export async function expireStaleArtShowSearchRuns(cutoffIso: string) {
+  const db = await getD1Database();
+  if (!db) return false;
+
+  const result = await db
+    .prepare(
+      `UPDATE art_show_search_runs
+       SET status = 'error',
+           result_count = 0,
+           message = 'Art show search timed out before Cloudflare could finish it. Try again with a smaller watchlist or retry later.',
+           completed_at = ?1
+       WHERE status = 'running'
+         AND started_at < ?2`
+    )
+    .bind(nowIso(), cutoffIso)
+    .run()
+    .catch(() => null);
+
+  return Boolean(result);
 }
 
 export async function getLatestArtShowSearchRun(): Promise<ArtShowSearchRun | null> {

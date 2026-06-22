@@ -56,6 +56,8 @@ const allTravelFilter = "all";
 const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
+const artShowPollIntervalMs = 1000 * 10;
+const artShowUiPollLimitMs = 1000 * 60 * 3;
 const usRegionNames = new Set([
   "alabama",
   "alaska",
@@ -417,6 +419,11 @@ function artShowRunMessage(run?: ArtShowSearchRun) {
   return run.message ?? "";
 }
 
+function artShowRunIsPastUiLimit(run?: ArtShowSearchRun) {
+  if (!run || run.status !== "running") return false;
+  return Date.now() - new Date(run.startedAt).getTime() > artShowUiPollLimitMs;
+}
+
 function readStoredSnapshots(): StoredFareSnapshots {
   if (typeof window === "undefined") return {};
   const raw = window.localStorage.getItem(fareSnapshotStorageKey);
@@ -513,7 +520,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
-  const artShowSearchRunning = artShowSearchRun?.status === "running";
+  const artShowSearchPastUiLimit = artShowRunIsPastUiLimit(artShowSearchRun);
+  const artShowSearchRunning =
+    artShowSearchRun?.status === "running" && !artShowSearchPastUiLimit;
+  const displayedArtShowStatusMessage = artShowSearchPastUiLimit
+    ? "Art show search took too long and stopped polling. Reload Art Show Watch to check whether Cloudflare finished it."
+    : artShowStatusMessage;
   const unsearchedArtWatchTerms = artWatchTerms.filter(
     (term) => term.active && !term.lastSearchedAt
   );
@@ -931,7 +943,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           // Keep the current running state visible; the next poll can recover.
         }
       })();
-    }, 4000);
+    }, artShowPollIntervalMs);
 
     return () => {
       cancelled = true;
@@ -1906,8 +1918,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             </p>
           ) : null}
 
-          {artShowStatusMessage ? (
-            <p className="mt-3 text-xs font-medium text-ink/54">{artShowStatusMessage}</p>
+          {displayedArtShowStatusMessage ? (
+            <p className="mt-3 text-xs font-medium text-ink/54">
+              {displayedArtShowStatusMessage}
+            </p>
           ) : null}
 
           {artShowSearchRun?.status === "complete" && artShowSearchRun.completedAt ? (

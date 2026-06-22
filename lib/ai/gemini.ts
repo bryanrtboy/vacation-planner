@@ -4,6 +4,7 @@ import type { ArtShowLead, DestinationSuggestion, TripPreferences } from "@/lib/
 
 const geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models";
 const geminiInteractionsEndpoint = "https://generativelanguage.googleapis.com/v1beta/interactions";
+const artShowSearchTimeoutMs = 1000 * 45;
 
 export type SuggestDestinationsInput = {
   promptKind: DestinationSuggestion["promptKind"];
@@ -531,6 +532,9 @@ export async function findArtShowsWithGemini(artists: string[]) {
     return { model: GEMINI_MODEL, rawResponseJson: "", leads: [] };
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), artShowSearchTimeoutMs);
+
   const response = await fetch(geminiInteractionsEndpoint, {
     method: "POST",
     headers: {
@@ -542,8 +546,9 @@ export async function findArtShowsWithGemini(artists: string[]) {
       model: GEMINI_MODEL,
       input: artShowPrompt(watchedArtists),
       tools: [{ type: "google_search" }]
-    })
-  });
+    }),
+    signal: controller.signal
+  }).finally(() => clearTimeout(timeoutId));
 
   const data = (await response.json().catch(() => ({}))) as GeminiInteractionResponse;
   if (!response.ok) {
