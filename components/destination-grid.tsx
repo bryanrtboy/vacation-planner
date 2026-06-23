@@ -41,6 +41,8 @@ import type {
   ArtWatchTerm,
   Destination,
   DestinationSuggestion,
+  DestinationVote,
+  DestinationVoteSummary,
   SavedSearchSummary,
   TripWindow,
   UsageState,
@@ -50,6 +52,7 @@ import type { TripPreferences } from "@/lib/types";
 
 const fareSnapshotStorageKey = "artist-travel-finder:fare-snapshots";
 const lodgingSnapshotStorageKey = "artist-travel-finder:lodging-snapshots";
+const destinationVoteUserStorageKey = "artist-travel-finder:destination-vote-user";
 const initialVisibleDestinations = 9;
 const destinationPageSize = 6;
 const allRegionsFilter = "all";
@@ -188,6 +191,13 @@ type DestinationScenarioResponse = {
     destinationSlug: string;
     preferences: TripPreferences;
   }[];
+};
+
+type DestinationVotesResponse = {
+  storageReady?: boolean;
+  votes: DestinationVote[];
+  summaries: DestinationVoteSummary[];
+  message?: string;
 };
 
 type CheckedScenario = Partial<TripPreferences> & {
@@ -369,9 +379,19 @@ function preferencesFromSavedSearch(
 function destinationMatchesRegion(destination: Destination, regionFilter: string) {
   if (regionFilter === allRegionsFilter) return true;
   if (destination.region === regionFilter) return true;
+  if (destinationRegionCountry(destination.region) === regionFilter) return true;
   if (regionFilter !== unitedStatesRegion) return false;
 
   return isUnitedStatesRegion(destination.region);
+}
+
+function destinationRegionCountry(region: string) {
+  const parts = region
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 1 ? parts.at(-1) : undefined;
 }
 
 function normalizeRegionPart(value: string) {
@@ -394,6 +414,17 @@ function isUnitedStatesRegion(region: string) {
     .filter(Boolean);
 
   return parts.some((part) => usRegionNames.has(part) || usCountryAliases.has(part));
+}
+
+function destinationIsDriveFriendly(destination: Destination) {
+  return destination.transport === "Car useful" || destination.transport === "Driver recommended";
+}
+
+function userHasHiddenDestination(
+  summary: DestinationVoteSummary | undefined,
+  userName: string | null
+) {
+  return Boolean(userName && summary?.hiddenBy.includes(userName));
 }
 
 function normalizeNights(value: unknown) {
@@ -557,6 +588,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
+  const [destinationVoteUser, setDestinationVoteUser] = useState<string | null>(null);
+  const [destinationVoteSummaries, setDestinationVoteSummaries] = useState<DestinationVoteSummary[]>([]);
+  const [showHiddenDestinations, setShowHiddenDestinations] = useState(false);
+  const [updatingDestinationVoteSlug, setUpdatingDestinationVoteSlug] = useState<string | null>(null);
+  const [destinationVoteMessage, setDestinationVoteMessage] = useState("");
   const artShowRunActive = artShowSearchRun?.status === "running";
   const artShowSearchRunning = artShowRunActive && processingArtShowBatches;
   const displayedArtShowStatusMessage = artShowStatusMessage;
@@ -578,12 +614,33 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const regions = useMemo(
     () => {
       const regionSet = new Set(destinations.map((destination) => destination.region));
+      destinations
+        .map((destination) => destinationRegionCountry(destination.region))
+        .filter((region): region is string => Boolean(region))
+        .forEach((region) => regionSet.add(region));
       if (destinations.some((destination) => isUnitedStatesRegion(destination.region))) {
         regionSet.add(unitedStatesRegion);
       }
       return [...regionSet].sort();
     },
     [destinations]
+  );
+  const destinationVoteSummaryBySlug = useMemo(
+    () =>
+      new Map(
+        destinationVoteSummaries.map((summary) => [summary.destinationSlug, summary])
+      ),
+    [destinationVoteSummaries]
+  );
+  const userHiddenDestinationCount = useMemo(
+    () =>
+      destinations.filter((destination) =>
+        userHasHiddenDestination(
+          destinationVoteSummaryBySlug.get(destination.slug),
+          destinationVoteUser
+        )
+      ).length,
+    [destinationVoteSummaryBySlug, destinationVoteUser, destinations]
   );
   const checkedSearchesBySlug = useMemo(() => {
     const bySlug = new Map<string, SavedSearchSummary[]>();
@@ -629,6 +686,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [savedSearches]);
   const destinationHasDriveOption = useCallback(
     (destination: Destination) =>
+      destinationIsDriveFriendly(destination) ||
       scenarioOverrides[destination.slug]?.travelMode === "drive" ||
       (checkedSearchesBySlug.get(destination.slug) ?? []).some(
         (search) => search.travelMode === "drive"
@@ -677,7 +735,34 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       );
     }
 
+    const originalIndex = new Map(
+      destinations.map((destination, index) => [destination.slug, index])
+    );
+    const compareByVotes = (a: Destination, b: Destination) => {
+      const aSummary = destinationVoteSummaryBySlug.get(a.slug);
+      const bSummary = destinationVoteSummaryBySlug.get(b.slug);
+      const starDelta = (bSummary?.starCount ?? 0) - (aSummary?.starCount ?? 0);
+      if (starDelta) return starDelta;
+
+      const aStarredAt = aSummary?.latestStarredAt
+        ? new Date(aSummary.latestStarredAt).getTime()
+        : 0;
+      const bStarredAt = bSummary?.latestStarredAt
+        ? new Date(bSummary.latestStarredAt).getTime()
+        : 0;
+      const starredTimeDelta = bStarredAt - aStarredAt;
+      if (starredTimeDelta) return starredTimeDelta;
+
+      return (originalIndex.get(a.slug) ?? 0) - (originalIndex.get(b.slug) ?? 0);
+    };
+
     const filtered = destinations.filter((destination) => {
+      const hiddenByViewer = userHasHiddenDestination(
+        destinationVoteSummaryBySlug.get(destination.slug),
+        destinationVoteUser
+      );
+      if (hiddenByViewer && !showHiddenDestinations) return false;
+
       const regionMatches = destinationMatchesRegion(destination, regionFilter);
       const searchMatches = destinationMatchesSearch(destination, librarySearchQuery);
       const stayMatches = destinationMatchesStayFilter(destination);
@@ -689,14 +774,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       return regionMatches && searchMatches && stayMatches && travelMatches;
     });
 
-    if (scoreSort === noScoreSort) return filtered;
+    if (scoreSort === noScoreSort) return [...filtered].sort(compareByVotes);
 
     return [...filtered].sort((a, b) => {
       const scoreDelta = b.fit[scoreSort] - a.fit[scoreSort];
-      return scoreDelta || a.name.localeCompare(b.name);
+      return scoreDelta || compareByVotes(a, b) || a.name.localeCompare(b.name);
     });
   }, [
     destinations,
+    destinationVoteSummaryBySlug,
+    destinationVoteUser,
     focusedSavedSearch,
     destinationHasDriveOption,
     destinationHasFlyOption,
@@ -704,6 +791,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     librarySearchQuery,
     regionFilter,
     scoreSort,
+    showHiddenDestinations,
     travelFilter
   ]);
   const visibleDestinations = useMemo(
@@ -825,6 +913,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     stayFilter !== allStayFilter ||
     travelFilter !== allTravelFilter ||
     scoreSort !== noScoreSort ||
+    showHiddenDestinations ||
     Boolean(focusedSavedSearch);
   const refreshSavedSearches = useCallback(async () => {
     try {
@@ -836,6 +925,58 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       // Saved searches are an optional D1 enhancement.
     }
   }, []);
+  const refreshDestinationVotes = useCallback(async () => {
+    try {
+      const response = await fetch("/api/destination-votes");
+      if (!response.ok) return;
+      const data = (await response.json()) as DestinationVotesResponse;
+      setDestinationVoteSummaries(data.summaries ?? []);
+      if (data.message) setDestinationVoteMessage(data.message);
+    } catch {
+      // Destination votes are optional; the library remains usable without D1.
+    }
+  }, []);
+  const ensureDestinationVoteUser = useCallback(() => {
+    if (destinationVoteUser) return destinationVoteUser;
+
+    const entered = window.prompt("Display name for trip preferences", "");
+    const normalized = entered?.trim().replace(/\s+/g, " ").slice(0, 40);
+    if (!normalized) return undefined;
+
+    window.localStorage.setItem(destinationVoteUserStorageKey, normalized);
+    setDestinationVoteUser(normalized);
+    return normalized;
+  }, [destinationVoteUser]);
+  const updateDestinationVotePreference = useCallback(
+    async (
+      destinationSlug: string,
+      action: "star" | "unstar" | "hide" | "unhide"
+    ) => {
+      const userName = ensureDestinationVoteUser();
+      if (!userName) return;
+
+      setUpdatingDestinationVoteSlug(destinationSlug);
+      setDestinationVoteMessage("Updating trip preference...");
+
+      try {
+        const response = await fetch("/api/destination-votes", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ destinationSlug, userName, action })
+        });
+        const data = (await response.json()) as DestinationVotesResponse;
+        setDestinationVoteSummaries(data.summaries ?? []);
+        setDestinationVoteMessage(
+          data.message ?? (response.ok ? "Trip preference updated." : "Unable to update trip preference.")
+        );
+      } catch {
+        setDestinationVoteMessage("Unable to update trip preference right now.");
+      } finally {
+        setUpdatingDestinationVoteSlug(null);
+      }
+    },
+    [ensureDestinationVoteUser]
+  );
   const persistDestinationScenarios = useCallback(
     (slugs: string[], activePreferences: TripPreferences) => {
       void Promise.all(
@@ -911,6 +1052,17 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const storedUser = window.localStorage.getItem(destinationVoteUserStorageKey);
+      if (storedUser?.trim()) {
+        setDestinationVoteUser(storedUser.trim().replace(/\s+/g, " "));
+      }
+      void refreshDestinationVotes();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [refreshDestinationVotes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1607,6 +1759,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     const comparisonLensLabel = lensSearch
       ? savedSearchKindMatchLabel(lensSearch, stayFilter, travelFilter)
       : undefined;
+    const voteSummary = destinationVoteSummaryBySlug.get(destination.slug);
+    const isStarredByViewer = Boolean(
+      destinationVoteUser && voteSummary?.starredBy.includes(destinationVoteUser)
+    );
+    const isHiddenByViewer = userHasHiddenDestination(voteSummary, destinationVoteUser);
 
     return (
       <DestinationCard
@@ -1657,6 +1814,22 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             ...current,
             [destination.slug]: photoUrl
           }))
+        }
+        starCount={voteSummary?.starCount ?? 0}
+        starredBy={voteSummary?.starredBy ?? []}
+        isStarredByViewer={isStarredByViewer}
+        isHiddenByViewer={isHiddenByViewer}
+        onToggleStar={() =>
+          void updateDestinationVotePreference(
+            destination.slug,
+            isStarredByViewer ? "unstar" : "star"
+          )
+        }
+        onHide={() =>
+          void updateDestinationVotePreference(
+            destination.slug,
+            isHiddenByViewer ? "unhide" : "hide"
+          )
         }
       />
     );
@@ -2303,9 +2476,37 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             <p className="mt-1 text-xs font-semibold text-ink/45">
               Showing {shownCount} of {filteredDestinations.length}
             </p>
+            {destinationVoteUser || destinationVoteMessage || updatingDestinationVoteSlug ? (
+              <p className="mt-1 text-[11px] font-medium text-ink/38">
+                {destinationVoteUser ? `Preferences as ${destinationVoteUser}` : ""}
+                {destinationVoteUser && (destinationVoteMessage || updatingDestinationVoteSlug)
+                  ? " · "
+                  : ""}
+                {updatingDestinationVoteSlug ? "Saving preference..." : destinationVoteMessage}
+              </p>
+            ) : null}
           </div>
           {visibleDestinations.length ? (
             <div className="flex flex-wrap gap-2 text-xs text-ink/58">
+              {destinationVoteUser ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const entered = window.prompt(
+                      "Display name for trip preferences",
+                      destinationVoteUser
+                    );
+                    const normalized = entered?.trim().replace(/\s+/g, " ").slice(0, 40);
+                    if (!normalized) return;
+                    window.localStorage.setItem(destinationVoteUserStorageKey, normalized);
+                    setDestinationVoteUser(normalized);
+                    setDestinationVoteMessage(`Using ${normalized}.`);
+                  }}
+                  className="rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+                >
+                  {destinationVoteUser}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() =>
@@ -2403,7 +2604,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             </select>
           </label>
           <label className="grid min-w-40 gap-1">
-            <span className="font-semibold uppercase tracking-wide text-ink/38">Sort by score</span>
+            <span className="font-semibold uppercase tracking-wide text-ink/38">Sort</span>
             <select
               value={scoreSort}
               onChange={(event) =>
@@ -2411,13 +2612,29 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               }
               className={libraryFieldClass}
             >
-              <option value={noScoreSort}>original order</option>
+              <option value={noScoreSort}>stars first</option>
               <option value="art">art</option>
               <option value="gardens">gardens</option>
               <option value="food">food</option>
               <option value="landscape">landscape</option>
             </select>
           </label>
+          {userHiddenDestinationCount ? (
+            <button
+              type="button"
+              onClick={() => setShowHiddenDestinations((current) => !current)}
+              className={`h-9 rounded-md border px-3 text-xs font-semibold transition ${
+                showHiddenDestinations
+                  ? "border-harbor/30 bg-harbor/10 text-harbor"
+                  : "border-ink/12 bg-white text-ink/62 hover:border-harbor/35 hover:text-harbor"
+              }`}
+              aria-pressed={showHiddenDestinations}
+            >
+              {showHiddenDestinations
+                ? "Hide hidden"
+                : `Show hidden (${userHiddenDestinationCount})`}
+            </button>
+          ) : null}
           {filtersActive ? (
             <button
               type="button"
@@ -2428,6 +2645,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 setStayFilter(allStayFilter);
                 setTravelFilter(allTravelFilter);
                 setScoreSort(noScoreSort);
+                setShowHiddenDestinations(false);
               }}
               className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
             >

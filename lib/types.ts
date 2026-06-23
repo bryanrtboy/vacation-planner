@@ -228,6 +228,24 @@ export type DestinationSuggestion = {
   reviewedAt?: string;
 };
 
+export type DestinationVote = {
+  destinationSlug: string;
+  userName: string;
+  starredAt?: string;
+  hiddenAt?: string;
+  updatedAt: string;
+};
+
+export type DestinationVoteSummary = {
+  destinationSlug: string;
+  starCount: number;
+  hiddenCount: number;
+  starredBy: string[];
+  hiddenBy: string[];
+  latestStarredAt?: string;
+  latestUpdatedAt?: string;
+};
+
 export type ArtWatchTerm = {
   id: string;
   label: string;

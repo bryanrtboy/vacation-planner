@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   Star,
+  X,
 } from "lucide-react";
 import { googleFlightsSearchUrl } from "@/lib/flights/links";
 import { lodgingModes, type LodgingMode, type LodgingModeId } from "@/lib/lodging/modes";
@@ -679,6 +680,68 @@ function PhotoTools({
   );
 }
 
+function DestinationPreferenceControls({
+  starCount,
+  starredBy = [],
+  isStarredByViewer,
+  isHiddenByViewer,
+  onToggleStar,
+  onHide
+}: {
+  starCount?: number;
+  starredBy?: string[];
+  isStarredByViewer?: boolean;
+  isHiddenByViewer?: boolean;
+  onToggleStar?: () => void;
+  onHide?: () => void;
+}) {
+  if (!onToggleStar && !onHide) return null;
+
+  const starTitle = starredBy.length
+    ? `Starred by ${starredBy.join(", ")}`
+    : "Star this destination";
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 [text-shadow:none]">
+      {onToggleStar ? (
+        <button
+          type="button"
+          onClick={onToggleStar}
+          title={starTitle}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold backdrop-blur transition ${
+            isStarredByViewer
+              ? "border-[#f5c15a]/70 bg-[#f5c15a] text-[#3f2a07] hover:bg-[#e5ae3f]"
+              : "border-white/35 bg-black/32 text-white hover:bg-black/48"
+          }`}
+          aria-pressed={Boolean(isStarredByViewer)}
+        >
+          <Star
+            size={14}
+            className={isStarredByViewer ? "fill-current" : "fill-transparent"}
+            aria-hidden="true"
+          />
+          {starCount ? String(starCount) : "Star"}
+        </button>
+      ) : null}
+      {onHide ? (
+        <button
+          type="button"
+          onClick={onHide}
+          title={
+            isHiddenByViewer
+              ? "Restore this destination to your results"
+              : "Hide this destination from your results"
+          }
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/28 bg-black/26 px-2.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/44"
+        >
+          <X size={14} aria-hidden="true" />
+          {isHiddenByViewer ? "Restore" : "Hide"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function SourceInfo({ price, label }: { price: PriceRange; label: string }) {
   const detail =
     price.sourceDetail ??
@@ -1309,7 +1372,13 @@ export function DestinationCard({
   isExpanded,
   onExpandedChange,
   photoUrl,
-  onPhotoChange
+  onPhotoChange,
+  starCount = 0,
+  starredBy = [],
+  isStarredByViewer = false,
+  isHiddenByViewer = false,
+  onToggleStar,
+  onHide
 }: {
   destination: Destination;
   fareSnapshot?: WatchRefreshResult;
@@ -1330,6 +1399,12 @@ export function DestinationCard({
   onExpandedChange: (expanded: boolean) => void;
   photoUrl?: string;
   onPhotoChange?: (photoUrl: string) => void;
+  starCount?: number;
+  starredBy?: string[];
+  isStarredByViewer?: boolean;
+  isHiddenByViewer?: boolean;
+  onToggleStar?: () => void;
+  onHide?: () => void;
 }) {
   const [pricesOpen, setPricesOpen] = useState(false);
   const theme = destination.visualTheme;
@@ -1407,6 +1482,14 @@ export function DestinationCard({
             onPhotoChange={onPhotoChange}
           />
           <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
+            <DestinationPreferenceControls
+              starCount={starCount}
+              starredBy={starredBy}
+              isStarredByViewer={isStarredByViewer}
+              isHiddenByViewer={isHiddenByViewer}
+              onToggleStar={onToggleStar}
+              onHide={onHide}
+            />
             <div className="min-w-0 pb-14">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
                 {destination.region} · {theme.moodLabel}
@@ -1474,6 +1557,14 @@ export function DestinationCard({
           onPhotoChange={onPhotoChange}
         />
         <div className="relative min-h-[246px] px-5 py-5 [text-shadow:_0_2px_5px_rgb(0_0_0_/_0.78),_0_1px_1px_rgb(0_0_0_/_0.95)]">
+          <DestinationPreferenceControls
+            starCount={starCount}
+            starredBy={starredBy}
+            isStarredByViewer={isStarredByViewer}
+            isHiddenByViewer={isHiddenByViewer}
+            onToggleStar={onToggleStar}
+            onHide={onHide}
+          />
           <div className="min-w-0 pb-14">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/90 sm:text-sm">
               {destination.region} · {theme.moodLabel}
