@@ -596,6 +596,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const artShowRunActive = artShowSearchRun?.status === "running";
   const artShowSearchRunning = artShowRunActive && processingArtShowBatches;
   const displayedArtShowStatusMessage = artShowStatusMessage;
+  const serpApiUsage = usage ?? lodgingUsage ?? artShowUsage;
+  const syncSerpApiUsage = useCallback((nextUsage?: UsageState | null) => {
+    if (!nextUsage) return;
+    setUsage(nextUsage);
+    setLodgingUsage(nextUsage);
+    setArtShowUsage(nextUsage);
+  }, []);
   const activeArtWatchTerms = artWatchTerms.filter((term) => term.active);
   const visibleArtWatchTerms = artWatchListExpanded
     ? activeArtWatchTerms
@@ -1097,7 +1104,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (!response.ok) return;
         const data = (await response.json()) as ArtShowsResponse;
         if (cancelled) return;
-        setArtShowUsage(data.usage);
+        syncSerpApiUsage(data.usage);
         setArtWatchTerms(data.watchTerms);
         setArtWatchText(watchTermsText(data.watchTerms));
         setArtShowLeads(data.leads);
@@ -1121,7 +1128,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [syncSerpApiUsage]);
 
   useEffect(() => {
     if (!artShowSearchRunning) return;
@@ -1140,7 +1147,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (response.ok) {
           const data = (await response.json()) as ArtShowsResponse;
           if (cancelled) return;
-          setArtShowUsage(data.usage);
+          syncSerpApiUsage(data.usage);
           setArtWatchTerms(data.watchTerms);
           setArtWatchText(watchTermsText(data.watchTerms));
           setArtShowLeads(data.leads);
@@ -1177,7 +1184,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       cancelled = true;
       if (timeoutId) window.clearTimeout(timeoutId);
     };
-  }, [artShowSearchRunning]);
+  }, [artShowSearchRunning, syncSerpApiUsage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1227,8 +1234,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (!response.ok) return;
         const data = (await response.json()) as SnapshotResponse;
         if (cancelled) return;
-        setUsage(data.usage);
-        setLodgingUsage(data.usage);
+        syncSerpApiUsage(data.usage);
         if (!data.results.length) return;
 
         const nextSnapshots = { ...readStoredSnapshots() };
@@ -1251,7 +1257,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       cancelled = true;
     };
-  }, [destinationSlugs, destinations, preferences, snapshotKey, tripWindowFor]);
+  }, [destinationSlugs, destinations, preferences, snapshotKey, syncSerpApiUsage, tripWindowFor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1266,8 +1272,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         if (!response.ok) return;
         const data = (await response.json()) as SnapshotResponse;
         if (cancelled) return;
-        setLodgingUsage(data.usage);
-        setUsage(data.usage);
+        syncSerpApiUsage(data.usage);
         if (!data.results.length) return;
 
         const nextSnapshots = { ...readStoredLodgingSnapshots() };
@@ -1290,7 +1295,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     return () => {
       cancelled = true;
     };
-  }, [destinationSlugs, destinations, lodgingKey, preferences, tripWindowFor]);
+  }, [destinationSlugs, destinations, lodgingKey, preferences, syncSerpApiUsage, tripWindowFor]);
 
   const refreshFareSnapshots = useCallback(
     async (
@@ -1314,7 +1319,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const data = (await response.json()) as SnapshotResponse;
         const nextSnapshots = { ...readStoredSnapshots() };
 
-        setUsage(data.usage);
+        syncSerpApiUsage(data.usage);
 
         for (const result of data.results) {
           const destination = destinations.find((item) => item.slug === result.destinationSlug);
@@ -1325,7 +1330,6 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         writeStoredSnapshots(nextSnapshots);
         setSnapshots(nextSnapshots);
-        setLodgingUsage(data.usage);
         persistDestinationScenarios(
           data.results
             .filter((result) => result.status === "checked")
@@ -1364,7 +1368,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [destinations, persistDestinationScenarios, preferences, refreshSavedSearches, snapshotKey, tripWindowFor]
+    [
+      destinations,
+      persistDestinationScenarios,
+      preferences,
+      refreshSavedSearches,
+      snapshotKey,
+      syncSerpApiUsage,
+      tripWindowFor
+    ]
   );
 
   const refreshLodgingSnapshots = useCallback(
@@ -1389,8 +1401,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         const data = (await response.json()) as SnapshotResponse;
         const nextSnapshots = { ...readStoredLodgingSnapshots() };
 
-        setLodgingUsage(data.usage);
-        setUsage(data.usage);
+        syncSerpApiUsage(data.usage);
 
         for (const result of data.results) {
           const destination = destinations.find((item) => item.slug === result.destinationSlug);
@@ -1423,7 +1434,15 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         });
       }
     },
-    [destinations, lodgingKey, persistDestinationScenarios, preferences, refreshSavedSearches, tripWindowFor]
+    [
+      destinations,
+      lodgingKey,
+      persistDestinationScenarios,
+      preferences,
+      refreshSavedSearches,
+      syncSerpApiUsage,
+      tripWindowFor
+    ]
   );
 
   const hydrateScenarioSnapshots = useCallback(
@@ -1457,7 +1476,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         if (fareResponse?.ok) {
           const data = (await fareResponse.json()) as SnapshotResponse;
-          setUsage(data.usage);
+          syncSerpApiUsage(data.usage);
           if (data.results.length) {
             const nextSnapshots = { ...readStoredSnapshots() };
             for (const result of data.results) {
@@ -1470,8 +1489,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
 
         if (lodgingResponse.ok) {
           const data = (await lodgingResponse.json()) as SnapshotResponse;
-          setLodgingUsage(data.usage);
-          setUsage(data.usage);
+          syncSerpApiUsage(data.usage);
           if (data.results.length) {
             const nextSnapshots = { ...readStoredLodgingSnapshots() };
             for (const result of data.results) {
@@ -1485,7 +1503,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         // Scenario edits can still show unchecked state when D1 is unavailable.
       }
     },
-    [lodgingKey, snapshotKey, tripWindowFor]
+    [lodgingKey, snapshotKey, syncSerpApiUsage, tripWindowFor]
   );
 
   const updateCardScenario = useCallback(
@@ -1595,7 +1613,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         body: JSON.stringify({ text: artWatchText })
       });
       const data = (await response.json()) as ArtShowsResponse;
-      setArtShowUsage(data.usage);
+      syncSerpApiUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1618,7 +1636,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     } finally {
       setSavingArtWatch(false);
     }
-  }, [artWatchText]);
+  }, [artWatchText, syncSerpApiUsage]);
 
   const findArtShows = useCallback(async () => {
     if (artShowRunActive) {
@@ -1636,7 +1654,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     try {
       const response = await fetch("/api/art-shows", { method: "POST" });
       const data = (await response.json()) as ArtShowsResponse;
-      setArtShowUsage(data.usage);
+      syncSerpApiUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1654,7 +1672,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     } finally {
       setSearchingArtShows(false);
     }
-  }, [artShowRunActive, artShowSearchProgress, artShowSearchRun]);
+  }, [artShowRunActive, artShowSearchProgress, artShowSearchRun, syncSerpApiUsage]);
 
   const reviewArtShowLead = useCallback(async (id: string, status: "saved" | "hidden") => {
     setReviewingArtShowId(id);
@@ -1669,7 +1687,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         body: JSON.stringify({ id, status })
       });
       const data = (await response.json()) as ArtShowsResponse;
-      setArtShowUsage(data.usage);
+      syncSerpApiUsage(data.usage);
       setArtWatchTerms(data.watchTerms);
       setArtWatchText(watchTermsText(data.watchTerms));
       setArtShowLeads(data.leads);
@@ -1684,7 +1702,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     } finally {
       setReviewingArtShowId(null);
     }
-  }, []);
+  }, [syncSerpApiUsage]);
 
   const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
     setReviewingSuggestionId(id);
@@ -1783,7 +1801,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         onScenarioChange={(nextPreferences) =>
           updateCardScenario(destination, nextPreferences)
         }
-        usage={usage ?? lodgingUsage}
+        usage={serpApiUsage}
         preferences={activePreferences}
         tripWindow={tripWindow}
         savedSearches={savedSearches}
@@ -1948,11 +1966,18 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               Curated places with enough context to compare costs, dates, scores, and tradeoffs.
             </p>
           </div>
-          {aiUsage ? (
-            <span className="rounded-full border border-white/18 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/76">
-              {aiUsage.remaining}/{aiUsage.limit} left today
-            </span>
-          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {serpApiUsage ? (
+              <span className="rounded-full border border-white/18 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/76">
+                {serpApiUsage.remaining}/{serpApiUsage.limit} source checks left
+              </span>
+            ) : null}
+            {aiUsage ? (
+              <span className="rounded-full border border-white/18 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/76">
+                {aiUsage.remaining}/{aiUsage.limit} AI ideas left
+              </span>
+            ) : null}
+          </div>
         </div>
         <button
           type="button"
@@ -2210,9 +2235,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {artShowUsage ? (
+              {serpApiUsage ? (
                 <span className="inline-flex items-center rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-ink/42">
-                  {artShowUsage.remaining}/{artShowUsage.limit} source searches left
+                  {serpApiUsage.remaining}/{serpApiUsage.limit} source searches left
                 </span>
               ) : null}
               <button
@@ -2226,7 +2251,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 type="button"
                 onClick={() => void findArtShows()}
                 disabled={
-                  searchingArtShows || artShowSearchRunning || artShowUsage?.remaining === 0
+                  searchingArtShows || artShowSearchRunning || serpApiUsage?.remaining === 0
                 }
                 className="inline-flex items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
               >

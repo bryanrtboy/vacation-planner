@@ -787,7 +787,7 @@ function CheckButton({
       </button>
       {usage ? (
         <span className="text-[10px] font-semibold uppercase tracking-wide text-ink/34">
-          {usage.remaining}/{usage.limit} left today
+          {usage.remaining}/{usage.limit} source checks left
         </span>
       ) : null}
     </span>

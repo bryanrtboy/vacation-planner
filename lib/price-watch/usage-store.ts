@@ -143,6 +143,7 @@ export async function tryReserveChecks(count: number, service = defaultService) 
 
   const day = todayKey();
   const timestamp = nowIso();
+  const limit = limitForService(service);
 
   await db
     .prepare(
@@ -154,40 +155,65 @@ export async function tryReserveChecks(count: number, service = defaultService) 
     .run()
     .catch(() => undefined);
 
-  const row = await db
-    .prepare("SELECT used, updated_at FROM usage_counters WHERE service = ?1 AND day = ?2")
-    .bind(service, day)
-    .first<{ used: number; updated_at: string }>()
-    .catch(() => null);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const row = await db
+      .prepare("SELECT used, updated_at FROM usage_counters WHERE service = ?1 AND day = ?2")
+      .bind(service, day)
+      .first<{ used: number; updated_at: string }>()
+      .catch(() => null);
 
-  if (!row) {
-    const usage = currentUsage(service);
-    const limit = limitForService(service);
-    const remaining = Math.max(limit - usage.used, 0);
+    if (!row) {
+      const usage = currentUsage(service);
+      const remaining = Math.max(limit - usage.used, 0);
+      const allowed = Math.min(count, remaining);
+      usage.used += allowed;
+      return { allowed, usage: fallbackUsageState(service) };
+    }
+
+    if (isStaleCounterRow(row.updated_at, day)) {
+      await db
+        .prepare(
+          "UPDATE usage_counters SET used = 0, updated_at = ?1 WHERE service = ?2 AND day = ?3"
+        )
+        .bind(timestamp, service, day)
+        .run()
+        .catch(() => undefined);
+      continue;
+    }
+
+    const remaining = Math.max(limit - row.used, 0);
     const allowed = Math.min(count, remaining);
-    usage.used += allowed;
-    return { allowed, usage: fallbackUsageState(service) };
+    if (allowed <= 0) {
+      return {
+        allowed: 0,
+        usage: usageState({ day, used: row.used }, service)
+      };
+    }
+
+    const nextUsed = row.used + allowed;
+    const result = await db
+      .prepare(
+        `UPDATE usage_counters
+         SET used = ?1, updated_at = ?2
+         WHERE service = ?3 AND day = ?4 AND used = ?5`
+      )
+      .bind(nextUsed, timestamp, service, day, row.used)
+      .run()
+      .catch(() => null);
+    const changes =
+      typeof result?.meta?.changes === "number"
+        ? result.meta.changes
+        : 0;
+
+    if (changes > 0) {
+      return {
+        allowed,
+        usage: usageState({ day, used: nextUsed }, service)
+      };
+    }
   }
 
-  const usage = {
-    day,
-    used: isStaleCounterRow(row.updated_at, day) ? 0 : row.used
-  };
-  const limit = limitForService(service);
-  const remaining = Math.max(limit - usage.used, 0);
-  const allowed = Math.min(count, remaining);
-  const nextUsed = usage.used + allowed;
-
-  await db
-    .prepare("UPDATE usage_counters SET used = ?1, updated_at = ?2 WHERE service = ?3 AND day = ?4")
-    .bind(nextUsed, timestamp, service, day)
-    .run()
-    .catch(() => undefined);
-
-  return {
-    allowed,
-    usage: usageState({ day, used: nextUsed }, service)
-  };
+  return { allowed: 0, usage: await getUsageState(service) };
 }
 
 export async function releaseReservedChecks(count: number, service = defaultService) {
