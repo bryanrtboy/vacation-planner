@@ -614,6 +614,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const failedArtWatchTerms = artWatchTerms.filter(
     (term) => term.active && term.lastFailedAt && !term.lastSearchedAt
   );
+  const savedArtWatchText = watchTermsText(artWatchTerms);
+  const artWatchHasUnsavedChanges =
+    artWatchEditing && artWatchText.trim() !== savedArtWatchText.trim();
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -1639,6 +1642,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [artWatchText, syncSerpApiUsage]);
 
   const findArtShows = useCallback(async () => {
+    if (artWatchHasUnsavedChanges) {
+      setArtShowStatusMessage("Save the art show watchlist before searching.");
+      return;
+    }
+
     if (artShowRunActive) {
       setProcessingArtShowBatches(true);
       setArtShowStatusMessage(
@@ -1672,7 +1680,13 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     } finally {
       setSearchingArtShows(false);
     }
-  }, [artShowRunActive, artShowSearchProgress, artShowSearchRun, syncSerpApiUsage]);
+  }, [
+    artWatchHasUnsavedChanges,
+    artShowRunActive,
+    artShowSearchProgress,
+    artShowSearchRun,
+    syncSerpApiUsage
+  ]);
 
   const reviewArtShowLead = useCallback(async (id: string, status: "saved" | "hidden") => {
     setReviewingArtShowId(id);
@@ -2251,7 +2265,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 type="button"
                 onClick={() => void findArtShows()}
                 disabled={
-                  searchingArtShows || artShowSearchRunning || serpApiUsage?.remaining === 0
+                  artWatchHasUnsavedChanges ||
+                  searchingArtShows ||
+                  artShowSearchRunning ||
+                  serpApiUsage?.remaining === 0
                 }
                 className="inline-flex items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
               >
@@ -2262,7 +2279,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 />
                 {searchingArtShows || artShowSearchRunning
                   ? "Searching..."
-                  : artShowRunActive
+                  : artWatchHasUnsavedChanges
+                    ? "Save list first"
+                    : artShowRunActive
                     ? "Resume sweep"
                     : "Find shows"}
               </button>

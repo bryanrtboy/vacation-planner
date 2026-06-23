@@ -195,7 +195,14 @@ export async function PUT(request: Request) {
     });
   }
 
-  await replaceArtWatchTerms(labels);
+  const saved = await replaceArtWatchTerms(labels);
+  if (!saved) {
+    return NextResponse.json(
+      await artShowsPayload("Unable to save the art show watchlist. Check D1 logs and retry."),
+      { status: 502 }
+    );
+  }
+
   return NextResponse.json(await artShowsPayload("Art show watchlist saved."));
 }
 

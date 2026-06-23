@@ -313,12 +313,28 @@ export async function replaceArtWatchTerms(labels: string[]) {
   if (!db) return false;
 
   const timestamp = nowIso();
-  const uniqueLabels = [...new Set(labels.map((label) => label.trim()).filter(Boolean))].slice(0, 80);
-  const ids = uniqueLabels.map((label) => slugify(label));
+  const existingRows = await db
+    .prepare("SELECT id, label FROM art_watch_terms")
+    .all<{ id: string; label: string }>()
+    .catch(() => ({ results: [] }));
+  const existingIdByLabel = new Map(
+    existingRows.results.map((row) => [row.label.trim().toLowerCase(), row.id])
+  );
+  const uniqueTerms = new Map<string, string>();
+  for (const label of labels) {
+    const cleanedLabel = label.trim();
+    if (!cleanedLabel) continue;
+
+    const id = existingIdByLabel.get(cleanedLabel.toLowerCase()) ?? slugify(cleanedLabel);
+    if (!id || uniqueTerms.has(id)) continue;
+    uniqueTerms.set(id, cleanedLabel);
+    if (uniqueTerms.size >= 80) break;
+  }
+  const terms = [...uniqueTerms.entries()].map(([id, label]) => ({ id, label }));
 
   const statements = [
     db.prepare("UPDATE art_watch_terms SET active = 0, updated_at = ?1").bind(timestamp),
-    ...uniqueLabels.map((label, index) =>
+    ...terms.map((term) =>
       db
         .prepare(
           `INSERT INTO art_watch_terms (id, label, active, created_at, updated_at)
@@ -328,7 +344,7 @@ export async function replaceArtWatchTerms(labels: string[]) {
              active = 1,
              updated_at = excluded.updated_at`
         )
-        .bind(ids[index], label, timestamp)
+        .bind(term.id, term.label, timestamp)
     )
   ];
 
