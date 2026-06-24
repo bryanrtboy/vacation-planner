@@ -402,6 +402,10 @@ function interactionOutputText(data: GeminiInteractionResponse) {
 }
 
 function promptForSuggestions(input: SuggestDestinationsInput) {
+  const lakeInterestInstruction = input.preferences.interests.toLowerCase().includes("lake")
+    ? "\n- For lake-view interests, actively consider lake towns and lake districts with relaxing water views, good food, and practical bases for ferries, trains, gardens, villas, villages, hikes, or cultural day excursions. Examples of the pattern include places like Lake Como, Lake Garda, Annecy, or lake regions with similar slow-travel appeal."
+    : "";
+
   return `Suggest exactly 3 travel destination ideas for a personal art-and-slow-travel planner.
 
 Hard rules:
@@ -428,6 +432,7 @@ Hard rules:
 - Include a concise "moodLabel" of 2 to 5 lowercase words, like "coastal tiles", "porticoes and trains", or "gardens and coast".
 - Include a short "photoSearch" phrase that can later find a real public-domain or Wikimedia-style card image.
 - Include starter links only when they are likely stable official tourism, museum, park, transport, or regional guide pages. Avoid made-up URLs.
+${lakeInterestInstruction}
 
 Request type: ${input.promptKind}.
 ${input.region ? `Requested region: ${input.region}.` : ""}

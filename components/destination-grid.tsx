@@ -154,6 +154,7 @@ const interestOptions = [
   "food · trains · architecture",
   "gardens · landscape · quiet bases",
   "relaxation · recharging · beautiful settings",
+  "lakes · views · food · excursions",
   "bay · ocean views · food",
   "rural escape · slow days",
   "fly-fishing · scenic walks",

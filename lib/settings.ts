@@ -13,5 +13,5 @@ export const defaultPreferences = {
   tripLength: "7 nights",
   lodging:
     "Apartments, villas, chateaux, riads, artist guesthouses, and unusual longer-stay rentals",
-  style: "Art, food, gardens, landscape, architecture, quiet bases, trains, slow travel"
+  style: "Art, food, gardens, lakes, landscape, architecture, quiet bases, trains, slow travel"
 };
