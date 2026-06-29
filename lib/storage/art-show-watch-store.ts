@@ -94,7 +94,7 @@ const seedArtists = [
   "Raphael"
 ];
 
-export const artShowBatchSize = 6;
+export const artShowBatchSize = 3;
 
 function slugify(value: string) {
   return value
@@ -104,6 +104,28 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+function watchTermLabelMatchers(labels: string[], firstParameterIndex = 2) {
+  const ids = [...new Set(labels.map((label) => slugify(label)).filter(Boolean))];
+  const normalizedLabels = [
+    ...new Set(labels.map((label) => label.trim().toLowerCase()).filter(Boolean))
+  ];
+  const idPlaceholders = ids
+    .map((_, index) => `?${firstParameterIndex + index}`)
+    .join(", ");
+  const labelPlaceholders = normalizedLabels
+    .map((_, index) => `?${firstParameterIndex + ids.length + index}`)
+    .join(", ");
+  const clauses = [
+    idPlaceholders ? `id IN (${idPlaceholders})` : "",
+    labelPlaceholders ? `LOWER(label) IN (${labelPlaceholders})` : ""
+  ].filter(Boolean);
+
+  return {
+    where: clauses.join(" OR "),
+    values: [...ids, ...normalizedLabels]
+  };
 }
 
 function rowToWatchTerm(row: ArtWatchTermRow): ArtWatchTerm {
@@ -533,8 +555,9 @@ export async function markArtWatchTermsSearched(labels: string[], timestamp = no
   const db = await getD1Database();
   if (!db || !labels.length) return false;
 
-  const ids = labels.map((label) => slugify(label));
-  const placeholders = ids.map((_, index) => `?${index + 2}`).join(", ");
+  const matchers = watchTermLabelMatchers(labels);
+  if (!matchers.values.length) return false;
+
   const result = await db
     .prepare(
       `UPDATE art_watch_terms
@@ -542,9 +565,9 @@ export async function markArtWatchTermsSearched(labels: string[], timestamp = no
            last_failed_at = NULL,
            search_failure_count = 0,
            updated_at = ?1
-       WHERE id IN (${placeholders})`
+       WHERE ${matchers.where}`
     )
-    .bind(timestamp, ...ids)
+    .bind(timestamp, ...matchers.values)
     .run()
     .catch(() => null);
 
@@ -555,17 +578,18 @@ export async function markArtWatchTermsSearchFailed(labels: string[], timestamp 
   const db = await getD1Database();
   if (!db || !labels.length) return false;
 
-  const ids = labels.map((label) => slugify(label));
-  const placeholders = ids.map((_, index) => `?${index + 2}`).join(", ");
+  const matchers = watchTermLabelMatchers(labels);
+  if (!matchers.values.length) return false;
+
   const result = await db
     .prepare(
       `UPDATE art_watch_terms
        SET last_failed_at = ?1,
            search_failure_count = COALESCE(search_failure_count, 0) + 1,
            updated_at = ?1
-       WHERE id IN (${placeholders})`
+       WHERE ${matchers.where}`
     )
-    .bind(timestamp, ...ids)
+    .bind(timestamp, ...matchers.values)
     .run()
     .catch(() => null);
 
@@ -932,7 +956,9 @@ export async function summarizeArtShowSearchRun(runId: string) {
     resultCount,
       message:
       errorCount > 0
-        ? `Finished with ${errorCount} timed-out batch${errorCount === 1 ? "" : "es"}. Start a new sweep later to continue remaining names.`
+        ? `Finished with ${errorCount} timed-out batch${
+            errorCount === 1 ? "" : "es"
+          }. Retry opens after 10 minutes, then 1 hour, then 24 hours after repeated failures.`
         : `Saved ${resultCount} sourced show lead${resultCount === 1 ? "" : "s"}.`
   });
 }

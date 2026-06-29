@@ -30,8 +30,13 @@ export const runtime = "nodejs";
 
 const artShowUsageService = "serpapi";
 const artShowSearchTimeoutMs = 1000 * 60 * 2;
-const artShowSearchFreshDays = 30;
-const artShowSearchFailureCooldownDays = 30;
+const artShowSearchFreshDays = 14;
+const artShowSearchFailureCooldownMinutesByAttempt = [10, 60, 60 * 24] as const;
+
+function artShowFailureCooldownMinutes(failureCount = 1) {
+  const index = Math.max(0, Math.min(failureCount - 1, artShowSearchFailureCooldownMinutesByAttempt.length - 1));
+  return artShowSearchFailureCooldownMinutesByAttempt[index];
+}
 
 function labelsFromText(value: string) {
   return value
@@ -42,12 +47,15 @@ function labelsFromText(value: string) {
 }
 
 function artWatchTermIsDue(
-  term: { active: boolean; lastSearchedAt?: string; lastFailedAt?: string },
-  searchedCutoffIso: string,
-  failedCutoffIso: string
+  term: { active: boolean; lastSearchedAt?: string; lastFailedAt?: string; searchFailureCount?: number },
+  searchedCutoffIso: string
 ) {
   if (!term.active) return false;
-  if (term.lastFailedAt && term.lastFailedAt >= failedCutoffIso) return false;
+  if (term.lastFailedAt) {
+    const failedAt = new Date(term.lastFailedAt).getTime();
+    const cooldownMs = artShowFailureCooldownMinutes(term.searchFailureCount) * 60 * 1000;
+    if (Number.isFinite(failedAt) && Date.now() - failedAt < cooldownMs) return false;
+  }
   return !term.lastSearchedAt || term.lastSearchedAt < searchedCutoffIso;
 }
 
@@ -67,7 +75,12 @@ function artShowSearchErrorMessage(error: unknown) {
   }
 
   if (normalized.includes("abort") || normalized.includes("timeout")) {
-    return "Art show source search timed out before SerpAPI returned Google results. This batch can retry in a future sweep.";
+    return [
+      message.startsWith("SerpAPI request timed out")
+        ? message
+        : "Art show source search timed out before SerpAPI returned Google results.",
+      "The first timeout retry opens after about 10 minutes; repeated timeouts pause for 1 hour, then 24 hours."
+    ].join(" ");
   }
 
   return message;
@@ -224,11 +237,8 @@ export async function POST() {
   const freshCutoff = new Date(
     Date.now() - 1000 * 60 * 60 * 24 * artShowSearchFreshDays
   ).toISOString();
-  const failureCutoff = new Date(
-    Date.now() - 1000 * 60 * 60 * 24 * artShowSearchFailureCooldownDays
-  ).toISOString();
   const dueTerms = watchTerms.filter((term) =>
-    artWatchTermIsDue(term, freshCutoff, failureCutoff)
+    artWatchTermIsDue(term, freshCutoff)
   );
   const artists = dueTerms.map((term) => term.label);
 
@@ -241,7 +251,7 @@ export async function POST() {
   if (!artists.length) {
     return NextResponse.json(
       await artShowsPayload(
-        `All active watchlist names have either completed a show search or hit a timeout cooldown in the last ${artShowSearchFreshDays} days.`
+        `All active watchlist names have either completed a show search in the last ${artShowSearchFreshDays} days or are briefly paused after a recent timeout. Timeout retries open after 10 minutes, then 1 hour, then 24 hours after repeated failures.`
       )
     );
   }

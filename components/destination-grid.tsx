@@ -61,6 +61,8 @@ const allStayFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
 const artShowSourceSearchIntervalMs = 1000 * 5;
+const artShowSuccessfulSearchFreshDays = 14;
+const artShowFailureCooldownMinutesByAttempt = [10, 60, 60 * 24] as const;
 const usRegionNames = new Set([
   "alabama",
   "alaska",
@@ -121,6 +123,49 @@ const usRegionNames = new Set([
 ]);
 const usCountryAliases = new Set(["us", "u s", "usa", "u s a", "united states", "united states of america"]);
 
+function artShowFailureCooldownMinutes(failureCount = 1) {
+  const index = Math.max(
+    0,
+    Math.min(failureCount - 1, artShowFailureCooldownMinutesByAttempt.length - 1)
+  );
+  return artShowFailureCooldownMinutesByAttempt[index];
+}
+
+function artWatchFailureCooldownUntil(term: ArtWatchTerm) {
+  if (!term.lastFailedAt) return null;
+
+  const failedAt = new Date(term.lastFailedAt).getTime();
+  if (!Number.isFinite(failedAt)) return null;
+
+  return new Date(
+    failedAt + artShowFailureCooldownMinutes(term.searchFailureCount) * 60 * 1000
+  );
+}
+
+function artWatchFailureCooldownLabel(term: ArtWatchTerm) {
+  const until = artWatchFailureCooldownUntil(term);
+  if (!until) return "retry ready";
+
+  const remainingMs = until.getTime() - Date.now();
+  if (remainingMs <= 0) return "retry ready";
+
+  const remainingMinutes = Math.ceil(remainingMs / (60 * 1000));
+  if (remainingMinutes < 60) return `retry in ${remainingMinutes}m`;
+
+  const remainingHours = Math.ceil(remainingMinutes / 60);
+  if (remainingHours < 24) return `retry in ${remainingHours}h`;
+
+  return `retry ${until.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  })}`;
+}
+
+function artWatchTermInFailureCooldown(term: ArtWatchTerm) {
+  const until = artWatchFailureCooldownUntil(term);
+  return Boolean(until && until.getTime() > Date.now());
+}
+
 const airportOptions = [
   { code: "DEN", label: "Denver" },
   { code: "ABQ", label: "Albuquerque" },
@@ -161,6 +206,19 @@ const interestOptions = [
   "bread-making · culinary classes",
   "custom"
 ];
+
+const customInterestsPlaceholder = "lakes, views, good food, excursions";
+
+function customInterestText(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "custom") return customInterestsPlaceholder;
+  if (!interestOptions.includes(trimmed)) return trimmed;
+  return trimmed
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
 
 type StoredFareSnapshots = Record<string, WatchRefreshResult>;
 
@@ -613,7 +671,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     (term) => term.active && !term.lastSearchedAt && !term.lastFailedAt
   );
   const failedArtWatchTerms = artWatchTerms.filter(
-    (term) => term.active && term.lastFailedAt && !term.lastSearchedAt
+    (term) => term.active && term.lastFailedAt && artWatchTermInFailureCooldown(term)
+  );
+  const retryReadyArtWatchTerms = artWatchTerms.filter(
+    (term) => term.active && term.lastFailedAt && !artWatchTermInFailureCooldown(term)
   );
   const savedArtWatchText = watchTermsText(artWatchTerms);
   const artWatchHasUnsavedChanges =
@@ -2166,6 +2227,9 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               onChange={(event) => {
                 if (event.target.value === "custom") {
                   setCustomInterestsOpen(true);
+                  updateGeneratorPreferences({
+                    interests: customInterestText(preferences.interests)
+                  });
                   return;
                 }
                 setCustomInterestsOpen(false);
@@ -2182,6 +2246,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <input
                 className={`${generatorFieldClass} mt-2`}
                 value={preferences.interests}
+                placeholder={customInterestsPlaceholder}
                 onChange={(event) =>
                   updateGeneratorPreferences({ interests: event.target.value })
                 }
@@ -2243,7 +2308,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 Searches the shared D1 watchlist for sourced, travel-worthy museum and major gallery shows.
               </p>
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
-                Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for 30 days.
+                Window: recently opened in the last 90 days, open now, and announced or planned shows up to 24 months ahead. Completed names are skipped for {artShowSuccessfulSearchFreshDays} days.
+              </p>
+              <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
+                Timeout retries reopen after 10 minutes, then 1 hour, then 24 hours for repeated failures.
               </p>
               <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
                 Cost guard: controlled Google source searches through SerpAPI, spaced a few seconds apart. Gemini search grounding is not used.
@@ -2324,8 +2392,10 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                     }`}
                   >
                     {term.label}
-                    {term.lastFailedAt && !term.lastSearchedAt ? (
-                      <span className="ml-1 font-bold uppercase tracking-wide">cooldown</span>
+                    {term.lastFailedAt ? (
+                      <span className="ml-1 font-bold uppercase tracking-wide">
+                        {artWatchFailureCooldownLabel(term)}
+                      </span>
                     ) : !term.lastSearchedAt ? (
                       <span className="ml-1 font-bold uppercase tracking-wide">new</span>
                     ) : null}
@@ -2358,11 +2428,17 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 {failedArtWatchTerms.length
                   ? ` · ${failedArtWatchTerms.length} in timeout cooldown`
                   : ""}
+                {retryReadyArtWatchTerms.length
+                  ? ` · ${retryReadyArtWatchTerms.length} retry ready`
+                  : ""}
               </p>
             </div>
           )}
 
-          {!artWatchEditing && (unsearchedArtWatchTerms.length || failedArtWatchTerms.length) ? (
+          {!artWatchEditing &&
+          (unsearchedArtWatchTerms.length ||
+            failedArtWatchTerms.length ||
+            retryReadyArtWatchTerms.length) ? (
             <p className="mt-2 text-xs font-medium text-ink/48">
               {unsearchedArtWatchTerms.length
                 ? `${unsearchedArtWatchTerms.length} active watchlist ${
@@ -2373,6 +2449,11 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 ? ` ${failedArtWatchTerms.length} ${
                     failedArtWatchTerms.length === 1 ? "name is" : "names are"
                   } paused after a timed-out search.`
+                : ""}
+              {retryReadyArtWatchTerms.length
+                ? ` ${retryReadyArtWatchTerms.length} ${
+                    retryReadyArtWatchTerms.length === 1 ? "name is" : "names are"
+                  } ready to retry after an earlier timeout.`
                 : ""}
             </p>
           ) : null}

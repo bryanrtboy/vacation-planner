@@ -288,9 +288,23 @@ export async function findArtShowsWithSerpApi(artists: string[]) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), artShowSearchTimeoutMs);
 
-  const response = await fetch(`${serpApiEndpoint}?${params.toString()}`, {
-    signal: controller.signal
-  }).finally(() => clearTimeout(timeoutId));
+  let response: Response;
+  try {
+    response = await fetch(`${serpApiEndpoint}?${params.toString()}`, {
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `SerpAPI request timed out after ${Math.round(
+          artShowSearchTimeoutMs / 1000
+        )} seconds for ${watchedArtists.join(", ")}.`
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const data = (await response.json().catch(() => ({}))) as SerpApiGoogleResponse;
 
   if (!response.ok) {

@@ -75,6 +75,19 @@ const interestOptions = [
   "custom"
 ];
 
+const customInterestsPlaceholder = "lakes, views, good food, excursions";
+
+function customInterestText(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "custom") return customInterestsPlaceholder;
+  if (!interestOptions.includes(trimmed)) return trimmed;
+  return trimmed
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 function normalizeNights(value: number) {
   if (!Number.isFinite(value)) return defaultTripPreferences.nights;
   return Math.min(Math.max(Math.round(value), 1), 60);
@@ -309,6 +322,9 @@ export function PreferenceStrip() {
           onChange={(event) => {
             if (event.target.value === "custom") {
               setCustomInterestsOpen(true);
+              updatePreferences({
+                interests: customInterestText(preferences.interests)
+              });
               return;
             }
             setCustomInterestsOpen(false);
@@ -325,6 +341,7 @@ export function PreferenceStrip() {
           <input
             className={`${fieldClass()} mt-2`}
             value={preferences.interests}
+            placeholder={customInterestsPlaceholder}
             onChange={(event) => updatePreferences({ interests: event.target.value })}
           />
         ) : null}
