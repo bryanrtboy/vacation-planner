@@ -236,6 +236,7 @@ function normalizeOrganicResult(
     travelReason:
       "Possible exhibition lead from a visible search result; confirm source details before planning travel.",
     score,
+    wasSaved: false,
     rawResponseJson: JSON.stringify({ query, result }),
     model: "serpapi-google-organic"
   };

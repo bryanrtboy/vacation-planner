@@ -61,7 +61,14 @@ type GeminiInteractionResponse = {
 
 type ArtShowLeadPayload = Omit<
   ArtShowLead,
-  "id" | "status" | "rawResponseJson" | "model" | "createdAt" | "updatedAt" | "reviewedAt"
+  | "id"
+  | "status"
+  | "wasSaved"
+  | "rawResponseJson"
+  | "model"
+  | "createdAt"
+  | "updatedAt"
+  | "reviewedAt"
 >;
 
 function geminiErrorMessage(status: number, providerMessage?: string) {
@@ -579,6 +586,7 @@ export async function findArtShowsWithGemini(artists: string[]) {
         .map((lead) => ({
           id: leadId(lead),
           status: "new" as const,
+          wasSaved: false,
           ...lead,
           rawResponseJson,
           model: GEMINI_MODEL

@@ -10,6 +10,7 @@ import {
   getActiveArtShowSearchRun,
   getLatestArtShowSearchRun,
   listArtShowLeads,
+  listRemovedSavedArtShowLeads,
   listArtWatchTermsWithSeed,
   markArtWatchTermsSearchFailed,
   markArtWatchTermsSearched,
@@ -95,7 +96,8 @@ async function artShowsPayload(message?: string) {
       usage: await getUsageState(artShowUsageService),
       watchTerms: [],
       leads: [],
-      savedLeads: []
+      savedLeads: [],
+      removedSavedLeads: []
     };
   }
 
@@ -113,6 +115,7 @@ async function artShowsPayload(message?: string) {
     watchTerms: await listArtWatchTermsWithSeed(),
     leads: await listArtShowLeads("new"),
     savedLeads: await listArtShowLeads("saved"),
+    removedSavedLeads: await listRemovedSavedArtShowLeads(),
     searchRun,
     searchProgress: await getArtShowSearchProgress(searchRun)
   };

@@ -275,6 +275,7 @@ export type ArtShowLead = {
   summary: string;
   travelReason: string;
   score: number;
+  wasSaved: boolean;
   rawResponseJson?: string;
   model?: string;
   createdAt: string;

@@ -37,6 +37,7 @@ type ArtShowLeadRow = {
   summary: string;
   travel_reason: string;
   score: number;
+  was_saved: number;
   raw_response_json: string | null;
   model: string | null;
   created_at: string;
@@ -158,6 +159,7 @@ function rowToLead(row: ArtShowLeadRow): ArtShowLead {
     summary: row.summary,
     travelReason: row.travel_reason,
     score: row.score,
+    wasSaved: Boolean(row.was_saved),
     rawResponseJson: row.raw_response_json ?? undefined,
     model: row.model ?? undefined,
     createdAt: row.created_at,
@@ -263,6 +265,19 @@ export async function artShowWatchStorageState(): Promise<ArtShowWatchStorageSta
       ready: false,
       message:
         "Art show watch storage is missing failure cooldown columns. Run npm run d1:migrate:remote before searching shows."
+    };
+  }
+
+  const leadColumns = await db
+    .prepare("PRAGMA table_info(art_show_leads)")
+    .all<{ name: string }>()
+    .catch(() => null);
+  const leadColumnNames = new Set(leadColumns?.results.map((row) => row.name) ?? []);
+  if (!leadColumnNames.has("was_saved")) {
+    return {
+      ready: false,
+      message:
+        "Art show watch storage is missing the saved-history column. Run npm run d1:migrate:remote before reviewing saved shows."
     };
   }
 
@@ -398,6 +413,7 @@ export async function listArtShowLeads(
          summary,
          travel_reason,
          score,
+         was_saved,
          NULL AS raw_response_json,
          model,
          created_at,
@@ -409,6 +425,46 @@ export async function listArtShowLeads(
        LIMIT 30`
     )
     .bind(status)
+    .all<ArtShowLeadRow>()
+    .catch(() => ({ results: [] }));
+
+  return rows.results.map(rowToLead).filter((lead) => !artShowLeadHasOldSerpApiPostDate(lead));
+}
+
+export async function listRemovedSavedArtShowLeads(): Promise<ArtShowLead[]> {
+  const db = await getD1Database();
+  if (!db) return [];
+
+  const rows = await db
+    .prepare(
+      `SELECT
+         id,
+         status,
+         artist,
+         title,
+         venue,
+         city,
+         country,
+         start_date,
+         end_date,
+         date_text,
+         source_url,
+         source_name,
+         summary,
+         travel_reason,
+         score,
+         was_saved,
+         NULL AS raw_response_json,
+         model,
+         created_at,
+         updated_at,
+         reviewed_at
+       FROM art_show_leads
+       WHERE status = 'hidden'
+         AND was_saved = 1
+       ORDER BY updated_at DESC
+       LIMIT 30`
+    )
     .all<ArtShowLeadRow>()
     .catch(() => ({ results: [] }));
 
@@ -461,11 +517,11 @@ export async function writeArtShowLeads(leads: ArtShowLeadInput[]) {
             `INSERT INTO art_show_leads (
               id, status, artist, title, venue, city, country, start_date,
               end_date, date_text, source_url, source_name, summary, travel_reason,
-              score, raw_response_json, model, created_at, updated_at, reviewed_at
+              score, was_saved, raw_response_json, model, created_at, updated_at, reviewed_at
             ) VALUES (
               ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
               ?9, ?10, ?11, ?12, ?13, ?14,
-              ?15, ?16, ?17, ?18, ?18, NULL
+              ?15, ?16, ?17, ?18, ?19, ?19, NULL
             )
             ON CONFLICT(source_url, artist, title) DO UPDATE SET
               status = CASE
@@ -482,6 +538,10 @@ export async function writeArtShowLeads(leads: ArtShowLeadInput[]) {
               summary = excluded.summary,
               travel_reason = excluded.travel_reason,
               score = excluded.score,
+              was_saved = CASE
+                WHEN art_show_leads.was_saved = 1 THEN 1
+                ELSE excluded.was_saved
+              END,
               raw_response_json = excluded.raw_response_json,
               model = excluded.model,
               updated_at = excluded.updated_at`
@@ -502,6 +562,7 @@ export async function writeArtShowLeads(leads: ArtShowLeadInput[]) {
             lead.summary,
             lead.travelReason,
             lead.score,
+            lead.wasSaved ? 1 : 0,
             lead.rawResponseJson ?? null,
             lead.model ?? null,
             timestamp
@@ -521,7 +582,10 @@ export async function updateArtShowLeadStatus(id: string, status: ArtShowLeadSta
   const result = await db
     .prepare(
       `UPDATE art_show_leads
-       SET status = ?1, updated_at = ?2, reviewed_at = ?2
+       SET status = ?1,
+           was_saved = CASE WHEN ?1 = 'saved' THEN 1 ELSE was_saved END,
+           updated_at = ?2,
+           reviewed_at = ?2
        WHERE id = ?3`
     )
     .bind(status, timestamp, id)
