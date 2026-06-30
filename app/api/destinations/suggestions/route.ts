@@ -444,15 +444,7 @@ export async function POST(request: Request) {
     const existingDestinations = destinations.map((destination) => ({
       name: destination.name,
       region: destination.region,
-      tripType: destination.tripType,
-      bestMonths: destination.bestMonths,
-      fitSummary: destination.fitSummary,
-      interests: [
-        ...Object.entries(destination.fit)
-          .filter(([, score]) => score >= 7)
-          .map(([key]) => key),
-        ...destination.highlights
-      ].slice(0, 10)
+      reason: destination.tripType
     }));
     const result = await suggestDestinationsWithGemini({
       promptKind,

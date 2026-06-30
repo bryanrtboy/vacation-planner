@@ -12,14 +12,7 @@ export type SuggestDestinationsInput = {
   parentName?: string;
   draftSuggestions: SuggestionMemoryItem[];
   rejectedSuggestions: SuggestionMemoryItem[];
-  existingDestinations: {
-    name: string;
-    region: string;
-    tripType: string;
-    bestMonths: string;
-    fitSummary: string;
-    interests: string[];
-  }[];
+  existingDestinations: SuggestionMemoryItem[];
   preferences: Pick<
     TripPreferences,
     "departure" | "travelMode" | "flightCount" | "nights" | "lodging" | "interests"
@@ -70,6 +63,21 @@ type ArtShowLeadPayload = Omit<
   ArtShowLead,
   "id" | "status" | "rawResponseJson" | "model" | "createdAt" | "updatedAt" | "reviewedAt"
 >;
+
+function geminiErrorMessage(status: number, providerMessage?: string) {
+  if (status === 524 || status === 504 || status === 408) {
+    return [
+      "Gemini timed out before returning destination ideas.",
+      "No suggestions were saved; retrying is safe and this failed request is released from the AI daily cap."
+    ].join(" ");
+  }
+
+  if (status === 429) {
+    return providerMessage ?? "Gemini rate limit or quota is temporarily unavailable.";
+  }
+
+  return providerMessage ?? `Gemini returned ${status}.`;
+}
 
 const artSearchCanonicalTerms: Record<string, string> = {
   "anselm keifer": "Anselm Kiefer",
@@ -500,7 +508,7 @@ export async function suggestDestinationsWithGemini(input: SuggestDestinationsIn
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.45,
-        maxOutputTokens: 5000,
+        maxOutputTokens: 3500,
         thinkingConfig: {
           thinkingLevel: "low"
         }
@@ -510,7 +518,7 @@ export async function suggestDestinationsWithGemini(input: SuggestDestinationsIn
 
   const data = (await response.json().catch(() => ({}))) as GeminiResponse;
   if (!response.ok) {
-    throw new Error(data.error?.message ?? `Gemini returned ${response.status}.`);
+    throw new Error(geminiErrorMessage(response.status, data.error?.message));
   }
 
   const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
