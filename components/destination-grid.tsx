@@ -479,6 +479,12 @@ function destinationIsDriveFriendly(destination: Destination) {
   return destination.transport === "Car useful" || destination.transport === "Driver recommended";
 }
 
+function destinationIsContiguousUs(destination: Destination) {
+  if (!isUnitedStatesRegion(destination.region)) return false;
+  const normalized = normalizeRegionPart(destination.region);
+  return !/\b(alaska|hawaii)\b/.test(normalized);
+}
+
 function userHasHiddenDestination(
   summary: DestinationVoteSummary | undefined,
   userName: string | null
@@ -758,11 +764,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   }, [savedSearches]);
   const destinationHasDriveOption = useCallback(
     (destination: Destination) =>
-      destinationIsDriveFriendly(destination) ||
-      scenarioOverrides[destination.slug]?.travelMode === "drive" ||
-      (checkedSearchesBySlug.get(destination.slug) ?? []).some(
-        (search) => search.travelMode === "drive"
-      ),
+      destinationIsContiguousUs(destination) &&
+      (destinationIsDriveFriendly(destination) ||
+        scenarioOverrides[destination.slug]?.travelMode === "drive" ||
+        (checkedSearchesBySlug.get(destination.slug) ?? []).some(
+          (search) => search.travelMode === "drive"
+        ) ||
+        destination.transport === "No car needed" ||
+        destination.transport === "Train-first"),
     [checkedSearchesBySlug, scenarioOverrides]
   );
   const destinationHasFlyOption = useCallback(
@@ -2726,7 +2735,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
             >
               <option value={allTravelFilter}>fly or drive</option>
               <option value="fly">fly</option>
-              <option value="drive">drive</option>
+              <option value="drive">drive from {preferences.departure}</option>
             </select>
           </label>
           <label className="grid min-w-40 gap-1">

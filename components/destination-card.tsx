@@ -430,24 +430,41 @@ function sourceKindLabel(sourceKind: PriceRange["sourceKind"] | WatchRefreshResu
   return "Planning estimate";
 }
 
-function linkTone() {
-  return "border-ink/12 bg-white text-ink/72 hover:border-harbor/45 hover:text-harbor";
-}
-
 function findTone(theme: Destination["visualTheme"]) {
   return theme.highlightClass;
 }
 
 function curatedFinds(destination: Destination) {
-  if (destination.curatedFinds?.length) return destination.curatedFinds;
-  if (!destination.retreatNote) return [];
-  return [
-    {
-      label: "Retreat angle",
-      note: destination.retreatNote,
-      kind: "retreat" as const
-    }
-  ];
+  const finds = destination.curatedFinds?.length
+    ? [...destination.curatedFinds]
+    : destination.retreatNote
+      ? [
+          {
+            label: "Retreat angle",
+            note: destination.retreatNote,
+            kind: "retreat" as const
+          }
+        ]
+      : [];
+  const seen = new Set(
+    finds.map((find) => `${find.label.toLowerCase()}|${find.url ?? ""}`)
+  );
+
+  for (const link of destination.links.filter(
+    (item) => item.kind !== "airfare" && item.kind !== "lodging"
+  )) {
+    const key = `${link.label.toLowerCase()}|${link.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    finds.push({
+      label: link.label,
+      note: "Starter research link.",
+      url: link.url,
+      kind: link.kind === "art" ? "art" : "day-trip"
+    });
+  }
+
+  return finds.slice(0, 6);
 }
 
 function transportAdvice(destination: Destination) {
@@ -1782,28 +1799,6 @@ export function DestinationCard({
           </div>
         </div>
 
-        <div className="mx-4 mb-4 border-t border-ink/10 pt-3 sm:mx-5">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-ink/24">
-            Research
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {destination.links
-              .filter((link) => link.kind !== "airfare" && link.kind !== "lodging")
-              .slice(0, 3)
-              .map((link) => (
-                <a
-                  key={link.url}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${linkTone()}`}
-                >
-                  {link.label}
-                  <ExternalLink size={12} aria-hidden="true" />
-                </a>
-              ))}
-          </div>
-        </div>
       </div>
     </article>
   );
