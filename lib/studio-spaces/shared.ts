@@ -78,8 +78,20 @@ export function scoreStudioLead(kind: StudioSpaceLeadKind, value: string, source
 
 export function studioLeadIsUseful(kind: StudioSpaceLeadKind, text: string) {
   if (kind === "unknown") return false;
-  if (/\b(airbnb|hotel room|vacation rental|workshop class|course)\b/i.test(text)) return false;
-  return /\b(artist|studio|workspace|live.?work|living,?\s+working|atelier|loft|swap|sublet|rent|room)\b/i.test(text);
+  if (studioLeadLooksLikeRealEstateNoise(text)) return false;
+  return /\b(artist studio|art studio|studio space|workspace|working space|live.?work|living,?\s+working|atelier|creative space|maker space|ceramic studio|print studio|studio swap|studio sublet|room \+ studio|room and studio)\b/i.test(text);
+}
+
+export function studioLeadLooksLikeRealEstateNoise(text: string) {
+  const normalized = normalizeForStudioMatch(text);
+  const realEstateSource =
+    /\b(airbnb|booking|vrbo|expedia|zillow|apartments com|apartmentlist|rentola|spotahome|housinganywhere|furnished finder|realtor com|redfin|padmapper|rentberry|nestpick)\b/.test(normalized);
+  const apartmentListing =
+    /\b(studio apartment|studio apartments|apartment for rent|apartments for rent|flat for rent|furnished apartment|serviced apartment|monthly rentals?|vacation rental|hotel room)\b/.test(normalized);
+  const artistWorkspaceSignal =
+    /\b(artist|art studio|artist studio|studio space|workspace|working space|atelier|creative space|maker space|ceramic|printmaking|sculpture|painting|studio swap|studio sublet|live work|live in studio|room studio|room and studio)\b/.test(normalized);
+
+  return (realEstateSource || apartmentListing) && !artistWorkspaceSignal;
 }
 
 export function excerpt(value: string, maxLength = 360) {

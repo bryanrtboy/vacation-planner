@@ -34,6 +34,7 @@ import {
   tripPreferencesChangedEvent,
   writeTripPreferences
 } from "@/lib/trip-preferences";
+import { studioLeadLooksLikeRealEstateNoise } from "@/lib/studio-spaces/shared";
 import type {
   ArtShowLead,
   ArtShowSearchProgress,
@@ -784,7 +785,16 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   );
   const filteredStudioSpaceLeads = useMemo(() => {
     return allStudioSpaceLeads.filter((lead) => {
-      const liveWorkKinds: StudioSpaceLeadKind[] = ["live-work", "room-plus-studio", "swap"];
+      const liveWorkKinds: StudioSpaceLeadKind[] = ["live-work", "room-plus-studio"];
+      if (
+        studioLeadLooksLikeRealEstateNoise(
+          [lead.title, lead.summary, lead.sourceName, lead.workspaceNote, lead.accommodationNote]
+            .filter(Boolean)
+            .join(" ")
+        )
+      ) {
+        return false;
+      }
       if (studioSpaceKindFilter !== allStudioKindFilter && lead.kind !== studioSpaceKindFilter) return false;
       if (studioSpaceLiveWorkOnly && !liveWorkKinds.includes(lead.kind)) return false;
       if (studioSpaceCityFilter !== allRegionsFilter && studioLeadLocation(lead) !== studioSpaceCityFilter) {

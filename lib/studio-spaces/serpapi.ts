@@ -5,6 +5,7 @@ import {
   compactHash,
   scoreStudioLead,
   studioLeadIsUseful,
+  studioLeadLooksLikeRealEstateNoise,
   studioMediumTags,
   type StudioSpaceLeadPayload
 } from "@/lib/studio-spaces/shared";
@@ -42,9 +43,9 @@ function studioSpaceQuery(city: string) {
   const safeCity = city.trim().replace(/"/g, "");
   return [
     `"${safeCity}"`,
-    '("artist live work" OR "artist live/work" OR "artist studio swap" OR "artist studio sublet" OR "studio space rental" OR "room + studio" OR "room and studio")',
+    '("artist studio space" OR "artist workspace" OR "artist live work" OR "artist live/work" OR "artist studio swap" OR "artist studio sublet" OR "art studio rental" OR "atelier rental" OR "room + studio" OR "room and studio")',
     "(temporary OR short-term OR sublet OR swap OR available OR rent)",
-    "-airbnb -hotel -workshop -class"
+    "-airbnb -hotel -workshop -class -\"studio apartment\" -apartments -zillow -booking -vrbo"
   ].join(" ");
 }
 
@@ -58,6 +59,7 @@ function normalizeOrganicResult(
   const source = sourceName(result);
   const text = cleanText([result.title, result.snippet, source, result.displayed_link].filter(Boolean).join(" "));
   const kind = classifyStudioKind(text);
+  if (studioLeadLooksLikeRealEstateNoise(text)) return null;
   if (!studioLeadIsUseful(kind, text)) return null;
   if (!new RegExp(`\\b${city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) return null;
 
