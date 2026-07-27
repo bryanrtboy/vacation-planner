@@ -317,3 +317,41 @@ export type ArtShowSearchProgress = {
   remainingTerms: number;
   currentBatch?: ArtShowSearchBatch;
 };
+
+export type StudioSpaceLeadStatus = "new" | "saved" | "hidden";
+
+export type StudioSpaceLeadKind =
+  | "live-work"
+  | "room-plus-studio"
+  | "studio-only"
+  | "swap"
+  | "wanted"
+  | "unknown";
+
+export type StudioSpaceLead = {
+  id: string;
+  status: StudioSpaceLeadStatus;
+  kind: StudioSpaceLeadKind;
+  title: string;
+  city: string;
+  country?: string;
+  sourceUrl: string;
+  sourceName: string;
+  postedDate?: string;
+  availabilityText?: string;
+  priceText?: string;
+  durationText?: string;
+  accommodationNote?: string;
+  workspaceNote?: string;
+  contactText?: string;
+  mediumTags: string[];
+  summary: string;
+  score: number;
+  wasSaved: boolean;
+  lastSeenAt: string;
+  rawResponseJson?: string;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
+};

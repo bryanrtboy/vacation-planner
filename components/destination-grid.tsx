@@ -44,6 +44,8 @@ import type {
   DestinationVote,
   DestinationVoteSummary,
   SavedSearchSummary,
+  StudioSpaceLead,
+  StudioSpaceLeadKind,
   TripWindow,
   UsageState,
   WatchRefreshResult
@@ -58,6 +60,7 @@ const destinationPageSize = 6;
 const allRegionsFilter = "all";
 const allTravelFilter = "all";
 const allStayFilter = "all";
+const allStudioKindFilter = "all";
 const noScoreSort = "none";
 const unitedStatesRegion = "United States";
 const artShowSourceSearchIntervalMs = 1000 * 5;
@@ -243,6 +246,15 @@ type ArtShowsResponse = {
   savedLeads?: ArtShowLead[];
   searchRun?: ArtShowSearchRun;
   searchProgress?: ArtShowSearchProgress;
+};
+
+type StudioSpacesResponse = {
+  usage: UsageState;
+  storageReady?: boolean;
+  message?: string;
+  leads: StudioSpaceLead[];
+  savedLeads?: StudioSpaceLead[];
+  hiddenLeads?: StudioSpaceLead[];
 };
 
 type DestinationScenarioResponse = {
@@ -509,6 +521,49 @@ function showLeadLocation(lead: ArtShowLead) {
   return [lead.venue, lead.city, lead.country].filter(Boolean).join(" · ");
 }
 
+const studioSpaceKindLabels: Record<StudioSpaceLeadKind, string> = {
+  "live-work": "Live-work",
+  "room-plus-studio": "Room + studio",
+  "studio-only": "Studio only",
+  swap: "Swap",
+  wanted: "Wanted",
+  unknown: "Unknown"
+};
+
+const studioSpaceKindOptions: StudioSpaceLeadKind[] = [
+  "live-work",
+  "room-plus-studio",
+  "studio-only",
+  "swap",
+  "wanted",
+  "unknown"
+];
+
+function studioLeadLocation(lead: StudioSpaceLead) {
+  return [lead.city, lead.country].filter(Boolean).join(" · ");
+}
+
+function studioLeadIsStale(lead: StudioSpaceLead) {
+  const time = new Date(lead.lastSeenAt).getTime();
+  if (!Number.isFinite(time)) return false;
+  return Date.now() - time > 1000 * 60 * 60 * 24 * 90;
+}
+
+function destinationStudioLeadText(destination: Destination) {
+  return normalizeRegionPart(`${destination.name} ${destination.region} ${destination.mapQuery}`);
+}
+
+function studioLeadMatchesDestination(lead: StudioSpaceLead, destination: Destination) {
+  const destinationText = destinationStudioLeadText(destination);
+  const city = normalizeRegionPart(lead.city);
+  const country = normalizeRegionPart(lead.country ?? "");
+  return Boolean(
+    city &&
+      (destinationText.includes(city) ||
+        (country && destinationText.includes(country) && destinationText.includes(city)))
+  );
+}
+
 function artShowRunMessage(run?: ArtShowSearchRun) {
   if (!run) return "";
   if (run.status === "running") {
@@ -629,15 +684,31 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [artWatchText, setArtWatchText] = useState("");
   const [artShowLeads, setArtShowLeads] = useState<ArtShowLead[]>([]);
   const [savedArtShowLeads, setSavedArtShowLeads] = useState<ArtShowLead[]>([]);
+  const [studioSpaceLeads, setStudioSpaceLeads] = useState<StudioSpaceLead[]>([]);
+  const [savedStudioSpaceLeads, setSavedStudioSpaceLeads] = useState<StudioSpaceLead[]>([]);
+  const [hiddenStudioSpaceLeads, setHiddenStudioSpaceLeads] = useState<StudioSpaceLead[]>([]);
   const [artShowSearchRun, setArtShowSearchRun] = useState<ArtShowSearchRun | undefined>();
   const [artShowSearchProgress, setArtShowSearchProgress] = useState<ArtShowSearchProgress | undefined>();
   const [artShowWatchOpen, setArtShowWatchOpen] = useState(false);
+  const [studioSpacesOpen, setStudioSpacesOpen] = useState(false);
   const [artWatchEditing, setArtWatchEditing] = useState(false);
   const [artWatchListExpanded, setArtWatchListExpanded] = useState(false);
   const [searchingArtShows, setSearchingArtShows] = useState(false);
+  const [refreshingStudioSpaces, setRefreshingStudioSpaces] = useState(false);
+  const [searchingStudioSpaces, setSearchingStudioSpaces] = useState(false);
   const [processingArtShowBatches, setProcessingArtShowBatches] = useState(false);
   const [savingArtWatch, setSavingArtWatch] = useState(false);
   const [reviewingArtShowId, setReviewingArtShowId] = useState<string | null>(null);
+  const [reviewingStudioSpaceId, setReviewingStudioSpaceId] = useState<string | null>(null);
+  const [studioSpaceCitySearch, setStudioSpaceCitySearch] = useState("");
+  const [studioSpaceKindFilter, setStudioSpaceKindFilter] =
+    useState<StudioSpaceLeadKind | typeof allStudioKindFilter>(allStudioKindFilter);
+  const [studioSpaceCityFilter, setStudioSpaceCityFilter] = useState(allRegionsFilter);
+  const [studioSpaceLiveWorkOnly, setStudioSpaceLiveWorkOnly] = useState(false);
+  const [studioSpaceShowSaved, setStudioSpaceShowSaved] = useState(true);
+  const [studioSpaceShowHidden, setStudioSpaceShowHidden] = useState(false);
+  const [studioSpaceShowStale, setStudioSpaceShowStale] = useState(false);
+  const [hasStudioLeadFilter, setHasStudioLeadFilter] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearchSummary[]>([]);
   const [focusedSavedSearch, setFocusedSavedSearch] = useState<SavedSearchSummary | null>(null);
   const [scenarioOverrides, setScenarioOverrides] = useState<Record<string, Partial<TripPreferences>>>({});
@@ -653,6 +724,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const [lodgingStatusMessage, setLodgingStatusMessage] = useState("");
   const [suggestionStatusMessage, setSuggestionStatusMessage] = useState("");
   const [artShowStatusMessage, setArtShowStatusMessage] = useState("");
+  const [studioSpaceStatusMessage, setStudioSpaceStatusMessage] = useState("");
   const [destinationVoteUser, setDestinationVoteUser] = useState<string | null>(null);
   const [destinationVoteSummaries, setDestinationVoteSummaries] = useState<DestinationVoteSummary[]>([]);
   const [showHiddenDestinations, setShowHiddenDestinations] = useState(false);
@@ -685,6 +757,63 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
   const savedArtWatchText = watchTermsText(artWatchTerms);
   const artWatchHasUnsavedChanges =
     artWatchEditing && artWatchText.trim() !== savedArtWatchText.trim();
+  const allStudioSpaceLeads = useMemo(
+    () => [
+      ...studioSpaceLeads,
+      ...(studioSpaceShowSaved ? savedStudioSpaceLeads : []),
+      ...(studioSpaceShowHidden ? hiddenStudioSpaceLeads : [])
+    ],
+    [
+      hiddenStudioSpaceLeads,
+      savedStudioSpaceLeads,
+      studioSpaceLeads,
+      studioSpaceShowHidden,
+      studioSpaceShowSaved
+    ]
+  );
+  const studioSpaceCityOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          [...studioSpaceLeads, ...savedStudioSpaceLeads, ...hiddenStudioSpaceLeads]
+            .map((lead) => studioLeadLocation(lead))
+            .filter(Boolean)
+        )
+      ].sort(),
+    [hiddenStudioSpaceLeads, savedStudioSpaceLeads, studioSpaceLeads]
+  );
+  const filteredStudioSpaceLeads = useMemo(() => {
+    return allStudioSpaceLeads.filter((lead) => {
+      const liveWorkKinds: StudioSpaceLeadKind[] = ["live-work", "room-plus-studio", "swap"];
+      if (studioSpaceKindFilter !== allStudioKindFilter && lead.kind !== studioSpaceKindFilter) return false;
+      if (studioSpaceLiveWorkOnly && !liveWorkKinds.includes(lead.kind)) return false;
+      if (studioSpaceCityFilter !== allRegionsFilter && studioLeadLocation(lead) !== studioSpaceCityFilter) {
+        return false;
+      }
+      if (!studioSpaceShowStale && studioLeadIsStale(lead)) return false;
+      return true;
+    });
+  }, [
+    allStudioSpaceLeads,
+    studioSpaceCityFilter,
+    studioSpaceKindFilter,
+    studioSpaceLiveWorkOnly,
+    studioSpaceShowStale
+  ]);
+  const activeStudioSpaceLeads = useMemo(
+    () => [...studioSpaceLeads, ...savedStudioSpaceLeads],
+    [savedStudioSpaceLeads, studioSpaceLeads]
+  );
+  const studioSpaceLeadsByDestinationSlug = useMemo(() => {
+    const bySlug = new Map<string, StudioSpaceLead[]>();
+    for (const destination of destinations) {
+      const matches = activeStudioSpaceLeads.filter((lead) =>
+        studioLeadMatchesDestination(lead, destination)
+      );
+      if (matches.length) bySlug.set(destination.slug, matches);
+    }
+    return bySlug;
+  }, [activeStudioSpaceLeads, destinations]);
   const destinationSlugs = useMemo(
     () => destinations.map((destination) => destination.slug),
     [destinations]
@@ -847,12 +976,14 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
       const regionMatches = destinationMatchesRegion(destination, regionFilter);
       const searchMatches = destinationMatchesSearch(destination, librarySearchQuery);
       const stayMatches = destinationMatchesStayFilter(destination);
+      const studioMatches =
+        !hasStudioLeadFilter || Boolean(studioSpaceLeadsByDestinationSlug.get(destination.slug)?.length);
       const travelMatches =
         travelFilter === allTravelFilter ||
         (travelFilter === "drive"
           ? destinationHasDriveOption(destination)
           : destinationHasFlyOption(destination));
-      return regionMatches && searchMatches && stayMatches && travelMatches;
+      return regionMatches && searchMatches && stayMatches && studioMatches && travelMatches;
     });
 
     if (scoreSort === noScoreSort) return [...filtered].sort(compareByVotes);
@@ -869,10 +1000,12 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     destinationHasDriveOption,
     destinationHasFlyOption,
     destinationMatchesStayFilter,
+    hasStudioLeadFilter,
     librarySearchQuery,
     regionFilter,
     scoreSort,
     showHiddenDestinations,
+    studioSpaceLeadsByDestinationSlug,
     travelFilter
   ]);
   const visibleDestinations = useMemo(
@@ -994,6 +1127,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     stayFilter !== allStayFilter ||
     travelFilter !== allTravelFilter ||
     scoreSort !== noScoreSort ||
+    hasStudioLeadFilter ||
     showHiddenDestinations ||
     Boolean(focusedSavedSearch);
   const refreshSavedSearches = useCallback(async () => {
@@ -1198,6 +1332,33 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
 
     void hydrateArtShows();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncSerpApiUsage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateStudioSpaces() {
+      try {
+        const response = await fetch("/api/studio-spaces");
+        if (!response.ok) return;
+        const data = (await response.json()) as StudioSpacesResponse;
+        if (cancelled) return;
+        syncSerpApiUsage(data.usage);
+        setStudioSpaceLeads(data.leads);
+        setSavedStudioSpaceLeads(data.savedLeads ?? []);
+        setHiddenStudioSpaceLeads(data.hiddenLeads ?? []);
+        if (data.leads.length || data.savedLeads?.length) setStudioSpacesOpen(true);
+        if (data.message) setStudioSpaceStatusMessage(data.message);
+      } catch {
+        // Studio space finder is optional; destination browsing still works without it.
+      }
+    }
+
+    void hydrateStudioSpaces();
 
     return () => {
       cancelled = true;
@@ -1789,6 +1950,88 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
     }
   }, [syncSerpApiUsage]);
 
+  const applyStudioSpacesResponse = useCallback(
+    (data: StudioSpacesResponse) => {
+      syncSerpApiUsage(data.usage);
+      setStudioSpaceLeads(data.leads);
+      setSavedStudioSpaceLeads(data.savedLeads ?? []);
+      setHiddenStudioSpaceLeads(data.hiddenLeads ?? []);
+      setStudioSpaceStatusMessage(data.message ?? "Studio spaces updated.");
+    },
+    [syncSerpApiUsage]
+  );
+
+  const refreshStudioSpaces = useCallback(async () => {
+    setRefreshingStudioSpaces(true);
+    setStudioSpaceStatusMessage("Refreshing TransArtists studio spaces...");
+
+    try {
+      const response = await fetch("/api/studio-spaces", { method: "POST" });
+      const data = (await response.json()) as StudioSpacesResponse;
+      applyStudioSpacesResponse(data);
+      if (!response.ok && !data.message) setStudioSpaceStatusMessage("Unable to refresh studio spaces.");
+    } catch {
+      setStudioSpaceStatusMessage("Unable to refresh studio spaces right now.");
+    } finally {
+      setRefreshingStudioSpaces(false);
+    }
+  }, [applyStudioSpacesResponse]);
+
+  const searchStudioSpacesByCity = useCallback(async () => {
+    const city = studioSpaceCitySearch.trim();
+    if (!city) {
+      setStudioSpaceStatusMessage("Choose a city before searching studio spaces.");
+      return;
+    }
+
+    setSearchingStudioSpaces(true);
+    setStudioSpaceStatusMessage(`Searching artist studio-space sources for ${city}...`);
+
+    try {
+      const response = await fetch("/api/studio-spaces", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "search-city", city })
+      });
+      const data = (await response.json()) as StudioSpacesResponse;
+      applyStudioSpacesResponse(data);
+      if (!response.ok && !data.message) setStudioSpaceStatusMessage("Unable to search studio spaces.");
+    } catch {
+      setStudioSpaceStatusMessage("Unable to search studio spaces right now.");
+    } finally {
+      setSearchingStudioSpaces(false);
+    }
+  }, [applyStudioSpacesResponse, studioSpaceCitySearch]);
+
+  const reviewStudioSpaceLead = useCallback(
+    async (id: string, status: "saved" | "hidden" | "new") => {
+      setReviewingStudioSpaceId(id);
+      setStudioSpaceStatusMessage(
+        status === "saved"
+          ? "Saving studio lead..."
+          : status === "hidden"
+            ? "Removing studio lead from active lists..."
+            : "Restoring studio lead..."
+      );
+
+      try {
+        const response = await fetch("/api/studio-spaces", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, status })
+        });
+        const data = (await response.json()) as StudioSpacesResponse;
+        applyStudioSpacesResponse(data);
+        if (!response.ok && !data.message) setStudioSpaceStatusMessage("Unable to update studio lead.");
+      } catch {
+        setStudioSpaceStatusMessage("Unable to update the studio lead right now.");
+      } finally {
+        setReviewingStudioSpaceId(null);
+      }
+    },
+    [applyStudioSpacesResponse]
+  );
+
   const reviewSuggestion = useCallback(async (id: string, action: "accept" | "hide") => {
     setReviewingSuggestionId(id);
     setSuggestionStatusMessage(action === "accept" ? "Adding destination idea..." : "Rejecting suggestion...");
@@ -1922,6 +2165,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
         starredBy={voteSummary?.starredBy ?? []}
         isStarredByViewer={isStarredByViewer}
         isHiddenByViewer={isHiddenByViewer}
+        studioLeadCount={studioSpaceLeadsByDestinationSlug.get(destination.slug)?.length ?? 0}
         onToggleStar={() =>
           void updateDestinationVotePreference(
             destination.slug,
@@ -2016,6 +2260,129 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <X size={13} aria-hidden="true" />
               Remove
             </button>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  function renderStudioSpaceLeadCard(lead: StudioSpaceLead) {
+    const saved = lead.status === "saved";
+    const hidden = lead.status === "hidden";
+    const stale = studioLeadIsStale(lead);
+
+    return (
+      <article
+        key={lead.id}
+        className={`rounded-md border px-3 py-3 text-sm ${
+          saved
+            ? "border-[#d29a36]/22 bg-[#fffaf0]"
+            : hidden
+              ? "border-ink/10 bg-ink/[0.03] opacity-80"
+              : "border-ink/10 bg-white"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-harbor/72">
+              {studioLeadLocation(lead) || "Review source"}
+            </p>
+            <h2 className="mt-1 text-sm font-semibold leading-5 text-ink">{lead.title}</h2>
+          </div>
+          <span className="shrink-0 rounded-md bg-harbor/8 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-harbor">
+            {studioSpaceKindLabels[lead.kind]}
+          </span>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
+            {lead.score}/10
+          </span>
+          {lead.postedDate ? (
+            <span className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48">
+              Posted {lead.postedDate}
+            </span>
+          ) : null}
+          {stale ? (
+            <span className="rounded-md bg-[#fff4dc] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a5a12]">
+              Stale
+            </span>
+          ) : null}
+          {lead.mediumTags.map((tag) => (
+            <span
+              key={tag}
+              className="rounded-md bg-ink/6 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink/48"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+
+        <p className="mt-2 text-xs leading-5 text-ink/64">{lead.summary}</p>
+        {lead.availabilityText || lead.priceText || lead.durationText ? (
+          <p className="mt-2 text-xs font-medium leading-5 text-ink/54">
+            {[lead.availabilityText, lead.durationText, lead.priceText].filter(Boolean).join(" · ")}
+          </p>
+        ) : null}
+        {lead.workspaceNote || lead.accommodationNote ? (
+          <p className="mt-1 text-xs leading-5 text-ink/45">
+            {[lead.workspaceNote, lead.accommodationNote].filter(Boolean).join(" ")}
+          </p>
+        ) : null}
+        {lead.contactText ? (
+          <p className="mt-1 text-xs font-medium leading-5 text-ink/42">{lead.contactText}</p>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <a
+            href={lead.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-md border border-ink/12 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"
+          >
+            <ExternalLink size={13} aria-hidden="true" />
+            {lead.sourceName}
+          </a>
+          {hidden ? (
+            <button
+              type="button"
+              onClick={() => void reviewStudioSpaceLead(lead.id, "new")}
+              disabled={reviewingStudioSpaceId === lead.id}
+              className="rounded-md border border-harbor/18 bg-white px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/8 disabled:cursor-wait disabled:opacity-60"
+            >
+              Restore
+            </button>
+          ) : saved ? (
+            <button
+              type="button"
+              onClick={() => void reviewStudioSpaceLead(lead.id, "hidden")}
+              disabled={reviewingStudioSpaceId === lead.id}
+              className="inline-flex items-center gap-1 rounded-md border border-[#d29a36]/24 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#8a5a12]/72 transition hover:border-[#d29a36]/42 hover:text-[#6f470b] disabled:cursor-wait disabled:opacity-60"
+            >
+              <X size={13} aria-hidden="true" />
+              Remove
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void reviewStudioSpaceLead(lead.id, "saved")}
+                disabled={reviewingStudioSpaceId === lead.id}
+                className="inline-flex items-center gap-1 rounded-md border border-harbor/18 bg-harbor/8 px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/12 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Bookmark size={13} aria-hidden="true" />
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => void reviewStudioSpaceLead(lead.id, "hidden")}
+                disabled={reviewingStudioSpaceId === lead.id}
+                className="inline-flex items-center gap-1 rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink/46 transition hover:border-ink/20 hover:text-ink/70 disabled:cursor-wait disabled:opacity-60"
+              >
+                <X size={13} aria-hidden="true" />
+                Hide
+              </button>
+            </>
           )}
         </div>
       </article>
@@ -2301,9 +2668,176 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <Search size={14} aria-hidden="true" />
               Art Show Watch
             </button>
+            <button
+              type="button"
+              onClick={() => setStudioSpacesOpen((current) => !current)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/24 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/16"
+              aria-expanded={studioSpacesOpen}
+            >
+              <BedDouble size={14} aria-hidden="true" />
+              Studio Spaces
+            </button>
           </div>
         </div>
       </div>
+
+      {studioSpacesOpen ? (
+        <section className="mb-3 rounded-md border border-ink/8 bg-white/65 px-3 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink/38">
+                <BedDouble size={14} className="text-harbor/70" aria-hidden="true" />
+                Studio Spaces
+              </p>
+              <p className="mt-1 max-w-3xl text-xs font-medium leading-5 text-ink/52">
+                Finds artist live-work rentals, room + studio offers, studio swaps, and temporary workspace leads.
+              </p>
+              <p className="mt-1 max-w-3xl text-[11px] font-medium leading-5 text-ink/42">
+                TransArtists refresh is direct and free. City search uses controlled SerpAPI source checks.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {serpApiUsage ? (
+                <span className="inline-flex items-center rounded-md border border-ink/10 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-ink/42">
+                  {serpApiUsage.remaining}/{serpApiUsage.limit} source searches left
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void refreshStudioSpaces()}
+                disabled={refreshingStudioSpaces}
+                className="inline-flex items-center gap-1.5 rounded-md border border-harbor/20 bg-white px-2.5 py-1.5 text-xs font-semibold text-harbor transition hover:bg-harbor/8 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Search
+                  size={13}
+                  className={refreshingStudioSpaces ? "animate-spin" : ""}
+                  aria-hidden="true"
+                />
+                {refreshingStudioSpaces ? "Refreshing..." : "Refresh TransArtists"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="grid min-w-44 gap-1 text-xs text-ink/58">
+              <span className="font-semibold uppercase tracking-wide text-ink/38">City search</span>
+              <input
+                value={studioSpaceCitySearch}
+                onChange={(event) => setStudioSpaceCitySearch(event.target.value)}
+                placeholder="Barcelona, Berlin..."
+                className={libraryFieldClass}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void searchStudioSpacesByCity()}
+              disabled={searchingStudioSpaces || serpApiUsage?.remaining === 0}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-harbor/25 bg-harbor px-3 text-xs font-semibold text-white transition hover:bg-harbor/90 disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/10 disabled:text-ink/35"
+            >
+              <Search
+                size={13}
+                className={searchingStudioSpaces ? "animate-spin" : ""}
+                aria-hidden="true"
+              />
+              {searchingStudioSpaces ? "Searching..." : "Search city"}
+            </button>
+            <label className="grid min-w-40 gap-1 text-xs text-ink/58">
+              <span className="font-semibold uppercase tracking-wide text-ink/38">Type</span>
+              <select
+                value={studioSpaceKindFilter}
+                onChange={(event) =>
+                  setStudioSpaceKindFilter(
+                    event.target.value as StudioSpaceLeadKind | typeof allStudioKindFilter
+                  )
+                }
+                className={libraryFieldClass}
+              >
+                <option value={allStudioKindFilter}>all types</option>
+                {studioSpaceKindOptions.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {studioSpaceKindLabels[kind]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-44 gap-1 text-xs text-ink/58">
+              <span className="font-semibold uppercase tracking-wide text-ink/38">Location</span>
+              <select
+                value={studioSpaceCityFilter}
+                onChange={(event) => setStudioSpaceCityFilter(event.target.value)}
+                className={libraryFieldClass}
+              >
+                <option value={allRegionsFilter}>all cities</option>
+                {studioSpaceCityOptions.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {[
+              {
+                active: studioSpaceLiveWorkOnly,
+                label: "Live-work only",
+                onClick: () => setStudioSpaceLiveWorkOnly((current) => !current)
+              },
+              {
+                active: studioSpaceShowSaved,
+                label: `Saved (${savedStudioSpaceLeads.length})`,
+                onClick: () => setStudioSpaceShowSaved((current) => !current)
+              },
+              {
+                active: studioSpaceShowHidden,
+                label: `Hidden (${hiddenStudioSpaceLeads.length})`,
+                onClick: () => setStudioSpaceShowHidden((current) => !current)
+              },
+              {
+                active: studioSpaceShowStale,
+                label: "Stale",
+                onClick: () => setStudioSpaceShowStale((current) => !current)
+              }
+            ].map((toggle) => (
+              <button
+                key={toggle.label}
+                type="button"
+                onClick={toggle.onClick}
+                className={`h-9 rounded-md border px-3 text-xs font-semibold transition ${
+                  toggle.active
+                    ? "border-harbor/30 bg-harbor/10 text-harbor"
+                    : "border-ink/12 bg-white text-ink/62 hover:border-harbor/35 hover:text-harbor"
+                }`}
+                aria-pressed={toggle.active}
+              >
+                {toggle.label}
+              </button>
+            ))}
+          </div>
+
+          {studioSpaceStatusMessage ? (
+            <p className="mt-3 text-xs font-medium text-ink/54">{studioSpaceStatusMessage}</p>
+          ) : null}
+
+          {filteredStudioSpaceLeads.length ? (
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-ink/42">
+                  Studio leads
+                </h2>
+                <span className="text-[11px] font-medium text-ink/38">
+                  {filteredStudioSpaceLeads.length} shown
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {filteredStudioSpaceLeads.slice(0, 18).map(renderStudioSpaceLeadCard)}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-md border border-ink/8 bg-white/60 px-4 py-5 text-sm font-medium text-ink/50">
+              No studio leads match the current filters.
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {artShowWatchOpen ? (
         <section className="mb-3 rounded-md border border-ink/8 bg-white/65 px-3 py-3">
@@ -2738,6 +3272,18 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               <option value="drive">drive from {preferences.departure}</option>
             </select>
           </label>
+          <button
+            type="button"
+            onClick={() => setHasStudioLeadFilter((current) => !current)}
+            className={`h-9 rounded-md border px-3 text-xs font-semibold transition ${
+              hasStudioLeadFilter
+                ? "border-harbor/30 bg-harbor/10 text-harbor"
+                : "border-ink/12 bg-white text-ink/62 hover:border-harbor/35 hover:text-harbor"
+            }`}
+            aria-pressed={hasStudioLeadFilter}
+          >
+            Has studio lead
+          </button>
           <label className="grid min-w-40 gap-1">
             <span className="font-semibold uppercase tracking-wide text-ink/38">Sort</span>
             <select
@@ -2780,6 +3326,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
                 setStayFilter(allStayFilter);
                 setTravelFilter(allTravelFilter);
                 setScoreSort(noScoreSort);
+                setHasStudioLeadFilter(false);
                 setShowHiddenDestinations(false);
               }}
               className="h-9 rounded-md border border-ink/12 bg-white px-3 text-xs font-semibold text-ink/62 transition hover:border-harbor/35 hover:text-harbor"

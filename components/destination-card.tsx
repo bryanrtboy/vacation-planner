@@ -1394,6 +1394,7 @@ export function DestinationCard({
   starredBy = [],
   isStarredByViewer = false,
   isHiddenByViewer = false,
+  studioLeadCount = 0,
   onToggleStar,
   onHide
 }: {
@@ -1420,6 +1421,7 @@ export function DestinationCard({
   starredBy?: string[];
   isStarredByViewer?: boolean;
   isHiddenByViewer?: boolean;
+  studioLeadCount?: number;
   onToggleStar?: () => void;
   onHide?: () => void;
 }) {
@@ -1736,6 +1738,11 @@ export function DestinationCard({
                   {groupRentalAdvice(destination)}
                 </InfoButton>
               </span>
+              {studioLeadCount ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-harbor/18 bg-harbor/8 px-2.5 py-1.5 text-xs font-semibold text-harbor">
+                  {studioLeadCount} studio lead{studioLeadCount === 1 ? "" : "s"}
+                </span>
+              ) : null}
               <span className="inline-flex items-center gap-1.5 rounded-md border border-clay/20 bg-clay/5 px-2.5 py-1.5 text-xs font-medium text-ink/70">
                 Trip tradeoff
                 <InfoButton label={`${destination.name} trip tradeoff`}>
