@@ -15,7 +15,13 @@ export type SuggestDestinationsInput = {
   existingDestinations: SuggestionMemoryItem[];
   preferences: Pick<
     TripPreferences,
-    "departure" | "travelMode" | "flightCount" | "nights" | "lodging" | "interests"
+    | "departure"
+    | "travelMode"
+    | "flightCount"
+    | "nights"
+    | "lodging"
+    | "interests"
+    | "setting"
   >;
 };
 
@@ -420,6 +426,18 @@ function promptForSuggestions(input: SuggestDestinationsInput) {
   const lakeInterestInstruction = input.preferences.interests.toLowerCase().includes("lake")
     ? "\n- For lake-view interests, actively consider lake towns and lake districts with relaxing water views, good food, and practical bases for ferries, trains, gardens, villas, villages, hikes, or cultural day excursions. Examples of the pattern include places like Lake Como, Lake Garda, Annecy, or lake regions with similar slow-travel appeal."
     : "";
+  const settingLabels: Record<TripPreferences["setting"], string> = {
+    any: "any especially beautiful natural setting",
+    "coast-beach": "a coast or beach setting with attractive sea views",
+    "lake-water": "a lake or other waterside setting with attractive views",
+    mountains: "a mountain setting with attractive landscape views",
+    countryside: "a countryside setting with attractive rural views"
+  };
+  const scenicRetreatInstruction = input.preferences.interests
+    .toLowerCase()
+    .includes("scenic retreat")
+    ? `\n- Treat this as a restorative long-stay retreat: favor a peaceful, livable base with groceries and everyday services, easy plein-air painting locations, and several realistic day trips without changing lodging. Discuss walkability, whether a car or driver is useful, and practical comfort factors such as heat, wind, shade, and access to viewpoints. Do not equate \"beach\" with a busy resort strip.`
+    : "";
 
   return `Suggest exactly 3 travel destination ideas for a personal art-and-slow-travel planner.
 
@@ -433,6 +451,7 @@ Hard rules:
     input.preferences.travelMode === "drive" ? " by car without airfare" : " by flight"
   }.
 - Match interests: ${input.preferences.interests}.
+- Required setting: ${settingLabels[input.preferences.setting]}.
 - Lodging preference: ${input.preferences.lodging}; ${
     input.preferences.travelMode === "drive"
       ? `${input.preferences.flightCount} travelers; driving trip`
@@ -448,6 +467,7 @@ Hard rules:
 - Include a short "photoSearch" phrase that can later find a real public-domain or Wikimedia-style card image.
 - Include starter links only when they are likely stable official tourism, museum, park, transport, or regional guide pages. Avoid made-up URLs.
 ${lakeInterestInstruction}
+${scenicRetreatInstruction}
 
 Request type: ${input.promptKind}.
 ${input.region ? `Requested region: ${input.region}.` : ""}

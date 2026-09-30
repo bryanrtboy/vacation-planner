@@ -409,7 +409,8 @@ export async function POST(request: Request) {
     preferences.flightCount,
     preferences.nights,
     preferences.lodging,
-    preferences.interests
+    preferences.interests,
+    preferences.setting
   ]
     .map(String)
     .join("|");

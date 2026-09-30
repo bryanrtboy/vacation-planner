@@ -8,6 +8,7 @@ export type TripPreferences = {
   nights: number;
   lodging: string;
   interests: string;
+  setting: "any" | "coast-beach" | "lake-water" | "mountains" | "countryside";
   travelSeason?: TripSeason;
   departDate?: string;
   returnDate?: string;

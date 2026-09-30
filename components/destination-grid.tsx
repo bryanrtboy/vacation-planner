@@ -14,6 +14,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Waves,
   X,
   Users
 } from "lucide-react";
@@ -200,6 +201,7 @@ const lodgingOptions = [
 const interestOptions = [
   "art · food · gardens",
   "art · craft · coast",
+  "scenic retreat · plein-air · day trips",
   "food · trains · architecture",
   "gardens · landscape · quiet bases",
   "relaxation · recharging · beautiful settings",
@@ -209,6 +211,14 @@ const interestOptions = [
   "fly-fishing · scenic walks",
   "bread-making · culinary classes",
   "custom"
+];
+
+const settingOptions: { value: TripPreferences["setting"]; label: string }[] = [
+  { value: "any", label: "any scenic setting" },
+  { value: "coast-beach", label: "coast or beach" },
+  { value: "lake-water", label: "lake or water views" },
+  { value: "mountains", label: "mountains" },
+  { value: "countryside", label: "countryside" }
 ];
 
 const customInterestsPlaceholder = "lakes, views, good food, excursions";
@@ -2462,7 +2472,7 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           Idea Generator
         </div>
         <div className={`${generatorControlsOpen ? "block" : "hidden"} md:block`}>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
             <div className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
               <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
                 <Plane size={14} className="text-white/68" aria-hidden="true" />
@@ -2639,6 +2649,27 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
               />
             ) : null}
             </label>
+          <label className="rounded-md border border-white/16 bg-white/10 px-3 py-2">
+            <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-white/64">
+              <Waves size={14} className="text-white/68" aria-hidden="true" />
+              Setting
+            </span>
+            <select
+              className={generatorFieldClass}
+              value={preferences.setting}
+              onChange={(event) =>
+                updateGeneratorPreferences({
+                  setting: event.target.value as TripPreferences["setting"]
+                })
+              }
+            >
+              {settingOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="grid min-w-44 gap-1 text-xs text-white/72">

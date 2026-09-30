@@ -12,6 +12,7 @@ export const defaultTripPreferences: TripPreferences = {
   nights: 7,
   lodging: "rentals first",
   interests: "art · food · gardens",
+  setting: "any",
   travelSeason: "recommended"
 };
 
@@ -146,6 +147,13 @@ export function readTripPreferences(): TripPreferences {
       ...parsed,
       departure: (parsed.departure ?? defaultTripPreferences.departure).trim().toUpperCase(),
       travelMode: parsed.travelMode === "drive" ? "drive" : "fly",
+      setting:
+        parsed.setting === "coast-beach" ||
+        parsed.setting === "lake-water" ||
+        parsed.setting === "mountains" ||
+        parsed.setting === "countryside"
+          ? parsed.setting
+          : "any",
       flightCount,
       nights,
       travelSeason: savedDatesStillMatch

@@ -64,6 +64,7 @@ const lodgingOptions = [
 const interestOptions = [
   "art · food · gardens",
   "art · craft · coast",
+  "scenic retreat · plein-air · day trips",
   "food · trains · architecture",
   "gardens · landscape · quiet bases",
   "relaxation · recharging · beautiful settings",
