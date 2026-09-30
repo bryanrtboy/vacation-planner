@@ -470,7 +470,7 @@ ${lakeInterestInstruction}
 ${scenicRetreatInstruction}
 
 Request type: ${input.promptKind}.
-${input.region ? `Requested region: ${input.region}.` : ""}
+${input.region ? `Requested place, region, or country: ${input.region}.` : ""}
 ${input.parentName ? `Use ${input.parentName} as the comparison anchor.` : ""}
 
 Existing destinations:

@@ -2673,19 +2673,22 @@ export function DestinationGrid({ destinations }: { destinations: Destination[] 
           </div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="grid min-w-44 gap-1 text-xs text-white/72">
-            <span className="font-semibold uppercase tracking-wide text-white/64">Region</span>
-            <select
-              value={generatorRegion}
+            <span className="font-semibold uppercase tracking-wide text-white/64">
+              Place, region, or country
+            </span>
+            <input
+              type="search"
+              list="generator-regions"
+              value={generatorRegion === allRegionsFilter ? "" : generatorRegion}
               onChange={(event) => setGeneratorRegion(event.target.value)}
+              placeholder="Cyprus or Alanya, Turkey"
               className={generatorFieldClass}
-            >
-              <option value={allRegionsFilter}>all regions</option>
+            />
+            <datalist id="generator-regions">
               {regions.map((region) => (
-                <option key={region} value={region}>
-                  {region}
-                </option>
+                <option key={region} value={region} />
               ))}
-            </select>
+            </datalist>
             </label>
             <button
               type="button"
